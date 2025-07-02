@@ -181,7 +181,11 @@ class PackedQuantizationCompressor(BaseQuantizationCompressor):
             )
 
         decompressed_weight = dequantize(
-            x_q=unpacked, scale=scale, zero_point=zero_point, g_idx=g_idx
+            x_q=unpacked,
+            scale=scale,
+            zero_point=zero_point,
+            g_idx=g_idx,
+            args=quantization_args,
         )
 
         return decompressed_weight

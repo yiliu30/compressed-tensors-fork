@@ -26,6 +26,7 @@ __all__ = [
     "FP8_DTYPE",
     "FP8_E4M3_DATA",
     "FP4_E2M1_DATA",
+    "FP8_E8M0_DATA",
     "FloatArgs",
     "QuantizationType",
     "QuantizationStrategy",
@@ -79,6 +80,16 @@ class FP8_E4M3_DATA(FloatArgs):
 
 # TODO: Remove soon in favour of a more descriptive FloatArgs
 FP8_DTYPE = torch.float8_e4m3fn
+
+
+class FP8_E8M0_DATA(FloatArgs):
+    exponent = 8
+    mantissa = 0
+    bits = 8
+    max = 2**127
+    min = 2 ** (-127)
+    bias = 127
+    nan = 255
 
 
 class QuantizationType(str, Enum):
@@ -186,6 +197,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             "Observers constructor excluding quantization range or symmetry"
         ),
     )
+    # For FP4 and FP8, OCP MX standard
+    is_mx: Optional[bool] = False
 
     @field_validator("type", mode="before")
     def validate_type(cls, value) -> QuantizationType:
@@ -316,7 +329,10 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         return model
 
     def pytorch_dtype(self) -> torch.dtype:
-        if self.type == QuantizationType.FLOAT:
+        if self.is_mx and self.num_bits == 4:
+            # For MXFP4, both data and scale are stored as torch.uint8
+            return torch.uint8
+        elif self.type == QuantizationType.FLOAT:
             if self.num_bits == 8:
                 return FP8_E4M3_DATA.dtype
             else:

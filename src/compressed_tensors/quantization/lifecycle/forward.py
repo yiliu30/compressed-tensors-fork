@@ -18,6 +18,9 @@ from typing import Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import (
+    FP4_E2M1_DATA,
+    FP8_E8M0_DATA,
+    FP8_E4M3_DATA,
     DynamicType,
     QuantizationArgs,
     QuantizationStrategy,
@@ -28,10 +31,13 @@ from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import (
     calculate_range,
     compute_dynamic_scales_and_zp,
+    is_fp4,
+    is_kv_cache_quant_scheme,
+    is_mxfp4,
+    is_mxfp8,
 )
 from compressed_tensors.utils import safe_permute
 from torch.nn import Module
-
 
 __all__ = [
     "quantize",
@@ -254,6 +260,7 @@ def _process_quantization(
                 scale=scale.unsqueeze(-1),
                 zero_point=zero_point.unsqueeze(-1) if zero_point is not None else None,
                 global_scale=global_scale,
+                args=args,
             )
 
         output = torch.reshape(
@@ -287,6 +294,7 @@ def _process_quantization(
                 scale=scale,
                 zero_point=zero_point,
                 global_scale=global_scale,
+                args=args,
             )
 
     return output
@@ -407,7 +415,28 @@ def _quantize(
     if global_scale is not None:
         scale = scale.to(global_scale.dtype) / global_scale
 
-    scaled = x / scale
+    if args.is_mx:
+        # https://github.com/pytorch/ao/blob/994a4ba6c869854fcaa6ca7e118fcbd75e6c28cc/torchao/prototype/mx_formats/mx_tensor.py#L94
+        data_hp = x
+        exponent = scale
+        descale_fp = torch.where(
+            exponent == 0,
+            1.0,
+            torch.exp2(FP8_E8M0_DATA.bias - exponent.to(torch.float32)),
+        )
+        if is_mxfp8(quantization_args=args):
+            max_pos = FP8_E4M3_DATA.max
+        elif is_mxfp4(quantization_args=args):
+            max_pos = FP4_E2M1_DATA.max
+        else:
+            raise ValueError(
+                f"Unsupported MX quantization args {args}. Expected mxfp4 or mxfp8."
+            )
+        # scale and saturated cast the data elements to max of target dtype
+        data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
+        scaled: torch.Tensor = data_lp
+    else:
+        scaled = x / scale
 
     if zero_point is not None:
         scaled += zero_point.to(x.dtype)
@@ -426,6 +455,25 @@ def _quantize(
     return quantized_value
 
 
+def get_fp_scale(scale_e8m0):
+    # https://github.com/pytorch/ao/blob/994a4ba6c869854fcaa6ca7e118fcbd75e6c28cc/torchao/prototype/mx_formats/mx_tensor.py#L337
+
+    scale_e8m0 = scale_e8m0.view(torch.uint8)
+    s_offset = scale_e8m0.to(torch.int16) - FP8_E8M0_DATA.bias
+    # TODO(later): it would be nice if there was a way to do the 2^x operation
+    # in PyTorch without creating a tensor of twos
+    two = torch.full(s_offset.size(), 2.0, device=scale_e8m0.device)
+    # pow(two, s_offset) can be out of range of floating point formats.
+    # TODO(later): handle this for float16 if we decide to support float16
+    # scales.
+    s_fp = torch.pow(two, s_offset)
+
+    # If a block exponent was 255, set values of that block to NaN
+    s_fp = torch.where(scale_e8m0 != FP8_E8M0_DATA.nan, s_fp, float("nan"))
+
+    return s_fp
+
+
 @torch.no_grad()
 def _dequantize(
     x_q: torch.Tensor,
@@ -433,12 +481,17 @@ def _dequantize(
     zero_point: torch.Tensor = None,
     dtype: Optional[torch.dtype] = None,
     global_scale: Optional[torch.Tensor] = None,
+    args: Optional[QuantizationArgs] = None,
 ) -> torch.Tensor:
 
     # if a global scale is optionally provided, use it
     # to further scale the local `scale` parameter
     if global_scale is not None:
         scale = scale.to(global_scale.dtype) / global_scale
+
+    if args.is_mx:
+        # https://github.com/pytorch/ao/blob/994a4ba6c869854fcaa6ca7e118fcbd75e6c28cc/torchao/prototype/mx_formats/mx_tensor.py#L94
+        scale = get_fp_scale(scale)
 
     dequant_value = x_q.to(scale.dtype)
 

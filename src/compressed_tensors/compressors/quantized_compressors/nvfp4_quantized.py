@@ -105,6 +105,66 @@ class NVFP4PackedCompressor(BaseQuantizationCompressor):
         return decompressed_weight
 
 
+@BaseCompressor.register(name=CompressionFormat.mxfp4_pack_quantized.value)
+class MXFP4PackedCompressor(BaseQuantizationCompressor):
+    """
+    Implements compression of MXFP4 values. Weights of each quantized layer
+    are packed into uint8. Only supports symmetric weight compression for now.
+    """
+
+    @property
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        return (
+            "weight_packed",
+            "weight_scale",
+            "weight_zero_point",
+        )
+
+    def compress_weight(
+        self,
+        weight: Tensor,
+        scale: Tensor,
+        quantization_args: QuantizationArgs,
+        global_scale: Optional[torch.Tensor] = None,
+        device: Optional[torch.device] = None,
+        zero_point: Optional[torch.Tensor] = None,
+        g_idx: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        quantized_weight = quantize(
+            x=weight,
+            scale=scale,
+            zero_point=zero_point,
+            args=quantization_args,
+        )
+        compressed_dict = {}
+        weight_packed = pack_fp4_to_uint8(quantized_weight)
+        if device is not None:
+            weight_packed = weight_packed.to(device)
+        compressed_dict["weight_packed"] = weight_packed
+        return compressed_dict
+
+    def decompress_weight(
+        self,
+        compressed_data: Dict[str, Tensor],
+        quantization_args: Optional[QuantizationArgs] = None,
+    ) -> torch.Tensor:
+
+        weight = compressed_data["weight_packed"]
+        scale = compressed_data["weight_scale"]
+        m, n = weight.shape
+        # TODO: use a user provided dequant dtype
+        unpacked = unpack_fp4_from_uint8(weight, m, n * 2)
+        decompressed_weight = dequantize(
+            x_q=unpacked, scale=scale, dtype=unpacked.dtype
+        )
+
+        return decompressed_weight
+
+
 def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
     """
     Packs a tensor with values in the fp4 range into uint8.
@@ -153,6 +213,7 @@ def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
 kE2M1ToFloat = torch.tensor(
     [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0], dtype=torch.float32
 )
+
 
 # reference: : https://github.com/vllm-project/vllm/pull/16362
 def unpack_fp4_from_uint8(

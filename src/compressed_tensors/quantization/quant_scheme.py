@@ -132,6 +132,29 @@ NVFP4 = dict(
     ),
 )
 
+
+MXFP4 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=32,
+        is_mx=True,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=DynamicType.LOCAL,
+        group_size=32,
+        is_mx=True,
+    ),
+)
+
+
 # 8 bit integer weights and 8 bit activations quantization
 INT8_W8A8 = dict(
     weights=QuantizationArgs(
@@ -207,6 +230,29 @@ INT8_W4A8 = dict(
 )
 
 # FP8 weights and FP8 activations quantization
+MXFP8 = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=32,
+        is_mx=True,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=DynamicType.LOCAL,
+        group_size=32,
+        is_mx=True,
+    ),
+)
+
+
+# FP8 weights and FP8 activations quantization
 FP8 = dict(
     weights=QuantizationArgs(
         num_bits=8,
@@ -259,4 +305,6 @@ PRESET_SCHEMES = {
     "FP8_DYNAMIC": FP8_DYNAMIC,
     "NVFP4A16": NVFP4A16,
     "NVFP4": NVFP4,
+    "MXFP4": MXFP4,
+    "MXFP8": MXFP8,
 }

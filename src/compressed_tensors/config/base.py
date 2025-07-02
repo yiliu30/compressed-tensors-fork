@@ -33,6 +33,7 @@ class CompressionFormat(Enum):
     pack_quantized = "pack-quantized"
     marlin_24 = "marlin-24"
     nvfp4_pack_quantized = "nvfp4-pack-quantized"
+    mxfp4_pack_quantized = "mxfp4-pack-quantized"
 
 
 @unique
