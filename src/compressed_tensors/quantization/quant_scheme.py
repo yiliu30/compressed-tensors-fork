@@ -12,16 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
+from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization.quant_args import (
     DynamicType,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
 )
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 __all__ = [
@@ -41,17 +43,21 @@ class QuantizationScheme(BaseModel):
     :param weights: quantization config for layer weights
     :param input_activations: quantization config for layer inputs
     :param output_activations: quantization config for layer outputs
+    :param format: CompressionFormat for the layer
     """
 
     targets: List[str]
     weights: Optional[QuantizationArgs] = None
     input_activations: Optional[QuantizationArgs] = None
     output_activations: Optional[QuantizationArgs] = None
+    format: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_model_after(model: "QuantizationScheme") -> "QuantizationScheme":
         inputs = model.input_activations
         outputs = model.output_activations
+        weights = model.weights
+        format = model.format
 
         if inputs is not None:
             if inputs.actorder is not None:
@@ -61,7 +67,31 @@ class QuantizationScheme(BaseModel):
             if outputs.actorder is not None:
                 raise ValueError("Cannot apply actorder to output activations")
 
+        if format == CompressionFormat.mixed_precision.value:
+            raise ValueError(
+                "mixed-precision cannot be set as a format for a QuantizationScheme"
+            )
+
+        if (
+            inputs
+            and weights
+            and weights.strategy == QuantizationStrategy.GROUP
+            and inputs.strategy == QuantizationStrategy.GROUP
+            and weights.group_size != inputs.group_size
+        ):
+            warnings.warn(
+                "Using GROUP strategy for both weights and input_activations "
+                f"with different group sizes ({weights.group_size} vs "
+                f"{inputs.group_size}) may complicate fused kernel implementations. "
+                "Consider using TENSOR_GROUP strategy for both or matching group"
+                " sizes.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         return model
+
+    model_config = ConfigDict(extra="forbid")
 
 
 """
@@ -289,6 +319,29 @@ FP8_DYNAMIC = dict(
     ),
 )
 
+# Block‐wise FP8 (deepseekv3-style quantization):
+# static 128x128 per‐block weights and
+# dynamic per‐token‐group activations
+FP8_BLOCK = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.BLOCK,
+        symmetric=True,
+        dynamic=False,
+        block_structure=[128, 128],
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.GROUP,
+        symmetric=True,
+        dynamic=True,
+        observer=None,
+        group_size=128,
+    ),
+)
+
 PRESET_SCHEMES = {
     # Unquantized (no-op)
     "UNQUANTIZED": UNQUANTIZED,
@@ -303,6 +356,7 @@ PRESET_SCHEMES = {
     # Float weight and activation schemes
     "FP8": FP8,
     "FP8_DYNAMIC": FP8_DYNAMIC,
+    "FP8_BLOCK": FP8_BLOCK,
     "NVFP4A16": NVFP4A16,
     "NVFP4": NVFP4,
     "MXFP4": MXFP4,

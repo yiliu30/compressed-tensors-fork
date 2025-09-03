@@ -27,9 +27,9 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationType,
 )
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.utils import deprecated
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
-from tqdm import tqdm
 
 
 __all__ = [
@@ -37,7 +37,6 @@ __all__ = [
     "is_module_quantized",
     "is_model_quantized",
     "module_type",
-    "calculate_compression_ratio",
     "get_torch_bit_depth",
     "can_quantize",
     "parse_out_kv_cache_args",
@@ -253,25 +252,30 @@ def compute_dynamic_scales_and_zp(
         reduce_dims = tuple(idx for idx in range(value.ndim) if idx not in dim)
     elif args.strategy == QuantizationStrategy.TENSOR:
         reduce_dims = None
-    elif args.strategy == QuantizationStrategy.TENSOR_GROUP:
-        if len(value.shape) > 2:
-            value = value.squeeze(0)
+    elif args.strategy in (
+        QuantizationStrategy.TENSOR_GROUP,
+        QuantizationStrategy.GROUP,
+    ):
 
-        dim = {0, 1}
-        reduce_dims = tuple(idx for idx in range(3) if idx not in dim)
+        reduce_dims = -1
         keep_dims = False
-        value = torch.reshape(
-            value,
-            (
-                value.shape[0],
-                math.ceil(value.shape[1] / args.group_size),
-                args.group_size,
-            ),
+
+        reshaped_dims = (
+            math.ceil(value.shape[-1] / args.group_size),
+            args.group_size,
         )
+        value = value.unflatten(-1, reshaped_dims)
+
     else:
+        supported_strategies = (
+            QuantizationStrategy.TOKEN,
+            QuantizationStrategy.TENSOR,
+            QuantizationStrategy.TENSOR_GROUP,
+            QuantizationStrategy.GROUP,
+        )
         raise ValueError(
             "Dynamic quantization is only supported for ",
-            f"{QuantizationStrategy.TOKEN, QuantizationStrategy.TENSOR, QuantizationStrategy.TENSOR_GROUP}",
+            f"{supported_strategies}",
         )
 
     if not reduce_dims:
@@ -358,12 +362,7 @@ def is_model_quantized(model: Module) -> bool:
     :param model: pytorch model
     :return: True if model is quantized, False otherwise
     """
-
-    for _, submodule in iter_named_leaf_modules(model):
-        if is_module_quantized(submodule):
-            return True
-
-    return False
+    return any(is_module_quantized(submodule) for submodule in model.modules())
 
 
 def module_type(module: Module) -> str:
@@ -376,6 +375,11 @@ def module_type(module: Module) -> str:
     return type(module).__name__
 
 
+@deprecated(
+    message="This function will be removed in a future release. "
+    "Please use `model.named_modules()` and filter by "
+    "compressed_tensors.InternalModule if neceessary"
+)
 def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None, None]:
     """
     Yields modules that do not have any submodules except observers. The observers
@@ -402,6 +406,11 @@ def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None
                 yield name, submodule
 
 
+@deprecated(
+    message="This function will be removed in a future release. "
+    "Please use `model.named_modules()` and filter by "
+    "compressed_tensors.InternalModule if neceessary"
+)
 def iter_named_quantizable_modules(
     model: Module,
     include_children: bool = True,
@@ -412,7 +421,6 @@ def iter_named_quantizable_modules(
     Yield name and submodule of
     - leaf modules, set by include_children
     - attention modyles, set by include_attn
-
     :param model: model to get leaf modules of
     :param include_children: flag to get the leaf modules
     :param inlcude_attn: flag to get the attention modules
@@ -477,34 +485,6 @@ def can_quantize(value: torch.Tensor, quant_args: "QuantizationArgs") -> bool:  
         )
 
     return bit_depth > quant_args.num_bits
-
-
-def calculate_compression_ratio(model: Module) -> float:
-    """
-    Calculates the quantization compression ratio of a pytorch model, based on the
-    number of bits needed to represent the total weights in compressed form. Does not
-    take into account activation quantizatons.
-
-    :param model: pytorch module to calculate compression ratio for
-    :return: compression ratio of the whole model
-    """
-    total_compressed = 0.0
-    total_uncompressed = 0.0
-    for name, submodule in tqdm(
-        iter_named_leaf_modules(model),
-        desc="Calculating quantization compression ratio",
-    ):
-        for parameter in model.parameters():
-            uncompressed_bits = get_torch_bit_depth(parameter)
-            compressed_bits = uncompressed_bits
-            if is_module_quantized(submodule) and submodule.quantization_scheme.weights:
-                compressed_bits = submodule.quantization_scheme.weights.num_bits
-
-            num_weights = parameter.numel()
-            total_compressed += compressed_bits * num_weights
-            total_uncompressed += uncompressed_bits * num_weights
-
-    return total_uncompressed / total_compressed
 
 
 def is_kv_cache_quant_scheme(scheme: QuantizationScheme) -> bool:

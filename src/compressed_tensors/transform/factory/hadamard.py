@@ -18,14 +18,14 @@ import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
 from compressed_tensors.transform.factory.base import TransformBase, TransformFactory
 from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_matrix
-from compressed_tensors.transform.utils.utils import (
+from compressed_tensors.transform.utils.matrix import (
     apply_transform_weight,
-    get_matrix_size,
+    get_transform_size,
 )
-from compressed_tensors.utils import get_offloaded_device
+from compressed_tensors.utils import get_execution_device, get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
 from torch import Tensor, device, dtype
-from torch.nn import Linear, Module, Parameter
+from torch.nn import Module, Parameter
 
 
 @TransformFactory.register("hadamard")
@@ -41,6 +41,7 @@ class HadamardFactory(TransformFactory):
     def __init__(self, name: str, scheme: TransformScheme, seed: Optional[int] = None):
         super().__init__(name, scheme, seed)
         self.weights = ParameterizedDefaultDict(self._create_weight)
+        self.perms = ParameterizedDefaultDict(self._create_permutation)
 
     def create_transform(self, module: Module, args: TransformArgs):
         """
@@ -50,30 +51,67 @@ class HadamardFactory(TransformFactory):
         :param module: parent module that transform will be applied to
         :param args: defines how the transform will be applied to the module
         """
-        assert isinstance(module, Linear)
-        size = get_matrix_size(module, args.location)
-        dtype = module.weight.dtype
+        assert hasattr(module, "weight")
+        size = get_transform_size(module, args.location, self.scheme.head_dim)
+        dtype = self.scheme.precision
         device = get_offloaded_device(module)
+        exec_device = get_execution_device(module)
 
-        weight = self.weights[size, dtype, device]
-        return HadamardTransform(weight, args)
+        factory_kwargs = {"construct_device": exec_device}
+        weight = self.weights.get(size, dtype, device, factory_kwargs=factory_kwargs)
+        perm = self.perms[weight] if self.scheme.randomize else None
+        return HadamardTransform(weight, perm, self.scheme, args, type(module))
 
-    def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
-        data = deterministic_hadamard_matrix(size, dtype, device)
-        data = data.to(dtype=dtype, device=device)
+    def _create_weight(
+        self,
+        size: int,
+        dtype: dtype,
+        device: device,
+        construct_device: device,
+    ) -> Parameter:
+        # construct on execution device, cache on offload device
+        data = deterministic_hadamard_matrix(size, dtype, construct_device)
+        data = data.to(device=device)
         return Parameter(data, requires_grad=self.scheme.requires_grad)
+
+    def _create_permutation(self, weight: Parameter) -> Parameter:
+        data = torch.randperm(weight.size(0), generator=self.generator)
+        return Parameter(data, requires_grad=False)
 
 
 class HadamardTransform(TransformBase):
-    def __init__(self, weight: Parameter, args: TransformArgs):
+    def __init__(
+        self,
+        weight: Parameter,
+        perm: Optional[Parameter],
+        scheme: TransformScheme,
+        args: TransformArgs,
+        module_type: type[torch.nn.Module],
+    ):
         super().__init__()
         self.weight = weight
+        self.perm = perm
+        self.scheme = scheme
         self.args = args
+        self.module_type = module_type
+        self._scale = torch.tensor(weight.size(0), dtype=self.scheme.precision).sqrt()
+        self._precision = scheme.precision if args.is_online() else torch.float64
 
     def forward(self, value: Tensor) -> Tensor:
-        if not self.args.inverse:
-            weight = self.weight
-        else:
-            weight = self.weight.T
+        weight = self.weight
 
-        return apply_transform_weight(weight, value, self.args.location)
+        if self.perm is not None:
+            weight = weight[self.perm][:, self.perm]
+
+        if self.args.inverse:
+            weight = weight.T
+
+        return (
+            apply_transform_weight(
+                weight.to(self._precision),
+                value.to(self._precision),
+                self.args.location,
+                self.module_type,
+            )
+            / self._scale
+        ).to(value.dtype)

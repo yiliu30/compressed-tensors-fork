@@ -15,7 +15,7 @@
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 __all__ = ["TransformArgs", "TransformLocation"]
@@ -46,7 +46,7 @@ class TransformLocation(str, Enum):
     Q_ATTN = "q_attn"
 
 
-class TransformArgs(BaseModel):
+class TransformArgs(BaseModel, use_enum_values=True):
     """
     Arguments which define *how* and where a transform should be applied to a model
 
@@ -68,3 +68,11 @@ class TransformArgs(BaseModel):
         if isinstance(value, str):
             return [value]
         return value
+
+    def is_online(self) -> bool:
+        return self.location not in (
+            TransformLocation.WEIGHT_INPUT,
+            TransformLocation.WEIGHT_OUTPUT,
+        )
+
+    model_config = ConfigDict(extra="forbid")

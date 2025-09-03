@@ -7,6 +7,10 @@ inputs:
   suitename:
     description: "test suite name"
     required: true
+  code_coverage:
+    description: whether to collect code coverage metrics during test run
+    type: boolean
+    default: false
 outputs:
   status:
     description: "final status from test"
@@ -22,14 +26,59 @@ runs:
           name: compressed
           extra: "[dev,accelerate]"
 
+    - name: clean up
+      run: |
+          echo "cleaning up disk space..."
+          find . -type f -name '*.whl' -exec rm -rf {} \;
+          python -m pip cache purge
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [[ "$(cat /etc/issue)" =~ Ubuntu ]]; then
+              sudo apt-get clean
+          fi
+          df -h
+      shell: bash
+
     - name: test
       id: test
       run: |
           source ${{ inputs.venv }}/bin/activate
           rm -rf src
+
+          if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
+            echo "::group::Installing code coverage requirements via pip"
+            pip install bashlex https://github.com/neuralmagic/pytest-nm-releng/archive/v0.4.0.tar.gz
+            pip install coverage pytest-cov
+
+            # Adding Code coverage to the tests
+            nmre-generate-coverage-flags --package "compressed_tensors" --output-file ".coverage_flags.sh"
+            source .coverage_flags.sh
+            echo "::endgroup::"
+          fi
+
+          echo "::group::running tests"
+          echo "PYTEST_ADDOPTS set to: ${PYTEST_ADDOPTS}"
+
           SUCCESS=0
           pytest tests --junitxml=test-results/report.xml -o junit_suite_name="${{ inputs.suitename }}" || SUCCESS=$?
           echo "status=${SUCCESS}" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+          if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
+            echo "::group::check coverage reports"
+            if [ ! -d coverage-html ]; then
+                echo "ERROR: coverage-html folder not found"
+                exit 1
+            fi
+            echo "::endgroup::"
+          fi
+          
           deactivate
           exit ${SUCCESS}
       shell: bash
+      env:
+        ENABLE_COVERAGE: ${{ inputs.code_coverage || false }}

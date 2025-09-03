@@ -19,49 +19,39 @@ import torch
 from compressed_tensors.transform import (
     TransformArgs,
     TransformBase,
-    TransformFactory,
+    TransformConfig,
     TransformScheme,
+    apply_transform_config,
 )
 from compressed_tensors.utils import align_modules, offloaded_dispatch
+from tests.test_transform.conftest import TransformableModel
 from tests.testing_utils import requires_accelerate, requires_gpu
 
 
-class TransformableModel(torch.nn.Module):
-    def __init__(self, *sizes):
-        super().__init__()
-        self.fcs = torch.nn.ModuleList([])
-        self.fcs.append(torch.nn.Linear(sizes[0], sizes[1], bias=False))
-        for index in range(1, len(sizes) - 1):
-            self.fcs.append(torch.nn.Linear(sizes[index], sizes[index + 1], bias=False))
-
-    def forward(self, x):
-        for layer in self.fcs:
-            x = layer(x)
-        return x
-
-
-@pytest.mark.parametrize(
-    "scheme",
-    [TransformScheme(type=name) for name in TransformFactory.registered_names()],
-)
-def test_memory_sharing(scheme, offload=False):
-    # load scheme and factory
-    scheme = TransformScheme(
-        type="hadamard",
-        apply=[
-            TransformArgs(targets="Linear", location="input"),
-            TransformArgs(targets="Linear", location="output"),
-        ],
-    )
-    factory = TransformFactory.from_scheme(scheme, name="")
-
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomize", (True, False))
+@pytest.mark.parametrize("requires_grad", (True, False))
+def test_memory_sharing(type, randomize, requires_grad, offload=False):
     # load model (maybe with offloading)
     model = TransformableModel(2, 2, 4, 4, 8, 8)
     if offload:
         offloaded_dispatch(model, torch.device("cuda"))
 
     # add transforms to model
-    factory.apply_to_model(model)
+    config = TransformConfig(
+        config_groups={
+            "": TransformScheme(
+                type=type,
+                randomize=randomize,
+                requires_grad=requires_grad,
+                apply=[
+                    TransformArgs(targets="Linear", location="input"),
+                    TransformArgs(targets="Linear", location="output"),
+                ],
+            )
+        }
+    )
+    apply_transform_config(model, config)
 
     # check that memory is shared when onloaded
     with align_modules(model.modules()):
@@ -93,20 +83,10 @@ def test_memory_sharing(scheme, offload=False):
 
 @requires_gpu
 @requires_accelerate()
-@pytest.mark.parametrize(
-    "scheme",
-    [TransformScheme(type=name) for name in TransformFactory.registered_names()],
-)
-def test_memory_sharing_offload(scheme):
-    test_memory_sharing(scheme, offload=True)
-
-
-@pytest.mark.parametrize(
-    "scheme",
-    [
-        TransformScheme(type=name, requires_grad=True)
-        for name in TransformFactory.registered_names()
-    ],
-)
-def test_memory_sharing_training(scheme):
-    test_memory_sharing(scheme, offload=False)
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomize", (True, False))
+def test_memory_sharing_offload(
+    type,
+    randomize,
+):
+    test_memory_sharing(type, randomize, requires_grad=False, offload=True)

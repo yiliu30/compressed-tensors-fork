@@ -17,14 +17,14 @@ from typing import Optional
 import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
 from compressed_tensors.transform.factory.base import TransformBase, TransformFactory
-from compressed_tensors.transform.utils.utils import (
+from compressed_tensors.transform.utils.matrix import (
     apply_transform_weight,
-    get_matrix_size,
+    get_transform_size,
 )
 from compressed_tensors.utils import get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
 from torch import Tensor, device, dtype
-from torch.nn import Linear, Module, Parameter
+from torch.nn import Module, Parameter
 
 
 @TransformFactory.register("random-matrix")
@@ -50,18 +50,19 @@ class RandomMatrixFactory(TransformFactory):
         :param module: parent module that transform will be applied to
         :param args: defines how the transform will be applied to the module
         """
-        assert isinstance(module, Linear)
-        size = get_matrix_size(module, args.location)
-        dtype = module.weight.dtype
+        assert hasattr(module, "weight")
+        size = get_transform_size(module, args.location, self.scheme.head_dim)
+        dtype = self.scheme.precision
         device = get_offloaded_device(module)
 
         weight = self.weights[size, dtype, device]
         if args.inverse:
             weight = self.inverses[weight]
 
-        return RandomMatrixTransform(weight, args)
+        return RandomMatrixTransform(weight, self.scheme, args, type(module))
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
+        # TODO: verify that weight is invertible (has non-zero determinant)
         data = torch.rand(
             (size, size), generator=self.generator, dtype=dtype, device=device
         )
@@ -69,22 +70,42 @@ class RandomMatrixFactory(TransformFactory):
 
     def _create_inverse(self, weight: Parameter) -> Parameter:
         data = high_precision_invert(weight.data)
+        data = data.contiguous()  # ensure proper serialization
         return Parameter(data, requires_grad=False)
 
 
 class RandomMatrixTransform(TransformBase):
-    def __init__(self, weight: Tensor, args: TransformArgs):
+    def __init__(
+        self,
+        weight: Tensor,
+        scheme: TransformScheme,
+        args: TransformArgs,
+        module_type: type[torch.nn.Module],
+    ):
         super().__init__()
         self.weight = weight  # is an inverse if args.inverse
+        self.scheme = scheme
         self.args = args
+        self.module_type = module_type
+        self._precision = scheme.precision if args.is_online() else torch.float64
 
     def forward(self, value: Tensor) -> Parameter:
-        return apply_transform_weight(self.weight, value, self.args.location)
+        return apply_transform_weight(
+            self.weight.to(self._precision),
+            value.to(self._precision),
+            self.args.location,
+            self.module_type,
+        ).to(value.dtype)
 
     def right_inverse(self, value: Tensor) -> Tensor:
         inverse = high_precision_invert(self.weight)
-        return apply_transform_weight(inverse, value, self.args.location)
+        return apply_transform_weight(
+            inverse.to(self._precision),
+            value.to(self._precision),
+            self.args.location,
+            self.module_type,
+        ).to(value.dtype)
 
 
 def high_precision_invert(weight: Tensor) -> Tensor:
-    return torch.linalg.inv(weight.to(torch.float32)).to(weight.dtype)
+    return torch.linalg.inv(weight.to(torch.float64)).to(weight.dtype)
