@@ -342,6 +342,31 @@ FP8_BLOCK = dict(
     ),
 )
 
+
+NVFPP_B32 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=32,
+        is_mx=False,
+        is_nvfpp=True
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=DynamicType.LOCAL,
+        group_size=32,
+        is_mx=False,
+        is_nvfpp=True
+    ),
+)
+
+
 PRESET_SCHEMES = {
     # Unquantized (no-op)
     "UNQUANTIZED": UNQUANTIZED,
@@ -361,4 +386,6 @@ PRESET_SCHEMES = {
     "NVFP4": NVFP4,
     "MXFP4": MXFP4,
     "MXFP8": MXFP8,
+    "NVFPP_B32": NVFPP_B32,
 }
+

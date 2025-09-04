@@ -52,6 +52,9 @@ __all__ = [
     "is_mxfp4",
     "is_mxfp8",
     "is_mx",
+    "is_nvfpp",
+    "is_nvfpp_b32",
+    "use_global_scales"
 ]
 
 # target the self_attn layer
@@ -68,7 +71,12 @@ def is_fp4(quantization_args: QuantizationArgs):
         and not quantization_args.is_mx
     )
 
-
+def use_global_scales(quantization_args: QuantizationArgs):
+    if is_nvfpp(quantization_args=quantization_args):
+        return quantization_args.use_global_scale
+    else:
+        return is_fp4(quantization_args=quantization_args)
+    
 def is_mxfp4(quantization_args: QuantizationArgs):
     return (
         quantization_args.num_bits == 4
@@ -87,6 +95,17 @@ def is_mxfp8(quantization_args: QuantizationArgs):
 
 def is_mx(quantization_args: QuantizationArgs):
     return quantization_args.is_mx
+
+def is_nvfpp(quantization_args: QuantizationArgs):
+    return quantization_args.is_nvfpp
+
+def is_nvfpp_b32(quantization_args: QuantizationArgs):
+    return (
+        quantization_args.is_nvfpp
+        and quantization_args.num_bits == 4
+        and quantization_args.group_size == 32
+        and not quantization_args.use_global_scale
+    )
 
 
 def calculate_qparams(
@@ -130,6 +149,14 @@ def calculate_qparams(
             scales = global_scale * (max_val_pos / FP4_E2M1_DATA.max)
             scales = torch.clamp(scales, max=FP8_E4M3_DATA.max, min=FP8_E4M3_DATA.min)
             scales = scales.to(FP8_E4M3_DATA.dtype)
+        elif is_nvfpp(quantization_args=quantization_args):
+            max_pos = FP4_E2M1_DATA.max
+            max_abs = max_val_pos
+            descale = max_abs / max_pos
+            from .nvfpp_helper import float_to_e5m3
+
+            scales = float_to_e5m3(descale.float())
+            
         elif is_mx(quantization_args=quantization_args):
             assert (
                 global_scale is None

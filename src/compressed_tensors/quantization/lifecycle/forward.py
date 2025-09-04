@@ -35,6 +35,7 @@ from compressed_tensors.quantization.utils import (
     is_kv_cache_quant_scheme,
     is_mxfp4,
     is_mxfp8,
+    is_nvfpp,
 )
 from compressed_tensors.utils import safe_permute
 from torch.nn import Module
@@ -496,6 +497,11 @@ def _quantize(
         # scale and saturated cast the data elements to max of target dtype
         data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
         scaled: torch.Tensor = data_lp
+    elif is_nvfpp(quantization_args=args):
+        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_e5m3, e5m3_to_float
+        fp_scale = e5m3_to_float(scale)
+        scaled = x / fp_scale
+        scaled = torch.clamp(scaled, min=-FP4_E2M1_DATA.max, max=FP4_E2M1_DATA.max)
     else:
         scaled = x / scale
 
@@ -553,6 +559,11 @@ def _dequantize(
     if args.is_mx:
         # https://github.com/pytorch/ao/blob/994a4ba6c869854fcaa6ca7e118fcbd75e6c28cc/torchao/prototype/mx_formats/mx_tensor.py#L94
         scale = get_fp_scale(scale)
+    
+    if args.is_nvfpp:
+        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_e5m3, e5m3_to_float
+        fp_scale = e5m3_to_float(scale)
+        scale = fp_scale
 
     dequant_value = x_q.to(scale.dtype)
 
