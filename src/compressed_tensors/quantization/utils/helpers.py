@@ -153,9 +153,9 @@ def calculate_qparams(
             max_pos = FP4_E2M1_DATA.max
             max_abs = max_val_pos
             descale = max_abs / max_pos
-            from .nvfpp_helper import float_to_e5m3
+            from .nvfpp_helper import float_to_nvfpp
 
-            scales = float_to_e5m3(descale.float())
+            scales = float_to_nvfpp(descale.float())
             
         elif is_mx(quantization_args=quantization_args):
             assert (

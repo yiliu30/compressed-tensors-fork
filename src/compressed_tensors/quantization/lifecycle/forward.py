@@ -498,8 +498,8 @@ def _quantize(
         data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
         scaled: torch.Tensor = data_lp
     elif is_nvfpp(quantization_args=args):
-        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_e5m3, e5m3_to_float
-        fp_scale = e5m3_to_float(scale)
+        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_nvfpp, nvfpp_to_float
+        fp_scale = nvfpp_to_float(scale)
         scaled = x / fp_scale
         scaled = torch.clamp(scaled, min=-FP4_E2M1_DATA.max, max=FP4_E2M1_DATA.max)
     else:
@@ -561,8 +561,8 @@ def _dequantize(
         scale = get_fp_scale(scale)
     
     if args.is_nvfpp:
-        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_e5m3, e5m3_to_float
-        fp_scale = e5m3_to_float(scale)
+        from compressed_tensors.quantization.utils.nvfpp_helper import float_to_nvfpp, nvfpp_to_float
+        fp_scale = nvfpp_to_float(scale)
         scale = fp_scale
 
     dequant_value = x_q.to(scale.dtype)
