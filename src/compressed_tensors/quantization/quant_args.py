@@ -199,6 +199,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     )
     # For FP4 and FP8, OCP MX standard
     is_mx: Optional[bool] = False
+    is_nvfpp: Optional[bool] = False  # for future use
+    use_global_scale: Optional[bool] = False  # for future use
 
     @field_validator("type", mode="before")
     def validate_type(cls, value) -> QuantizationType:
@@ -395,7 +397,7 @@ def round_to_quantized_type(
         if args.num_bits == 8:
             rounded = tensor.to(FP8_E4M3_DATA.dtype)
         elif args.num_bits == 4:
-            rounded = FP4_E2M1_DATA.cast_to_fp4(tensor)
+            rounded: torch.Tensor = FP4_E2M1_DATA.cast_to_fp4(tensor)
         else:
             raise NotImplementedError("Only num_bits in (4, 8) are supported")
     elif args.type == QuantizationType.INT:
