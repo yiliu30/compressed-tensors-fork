@@ -36,7 +36,7 @@ class CompressionFormat(Enum):
     nvfp4_pack_quantized = "nvfp4-pack-quantized"
     mxfp4_pack_quantized = "mxfp4-pack-quantized"
     nvfpp_b32_pack_quantized = "nvfpp-b32-pack-quantized"
-    mxfpp_b16_pack_quantized = "mxfpp-b16-pack-quantized"
+    nvfpp_b16_pack_quantized = "nvfpp-b16-pack-quantized"
 
 
 @unique

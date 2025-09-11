@@ -54,7 +54,8 @@ __all__ = [
     "is_mx",
     "is_nvfpp",
     "is_nvfpp_b32",
-    "use_global_scales"
+    "use_global_scales",
+    "is_nvfpp_b16",
 ]
 
 # target the self_attn layer
@@ -104,6 +105,14 @@ def is_nvfpp_b32(quantization_args: QuantizationArgs):
         quantization_args.is_nvfpp
         and quantization_args.num_bits == 4
         and quantization_args.group_size == 32
+        and not quantization_args.use_global_scale
+    )
+
+def is_nvfpp_b16(quantization_args: QuantizationArgs):
+    return (
+        quantization_args.is_nvfpp
+        and quantization_args.num_bits == 4
+        and quantization_args.group_size == 16
         and not quantization_args.use_global_scale
     )
 

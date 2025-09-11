@@ -125,7 +125,8 @@ class NVFP4PackedCompressor(BaseQuantizationCompressor):
 
 
 @BaseCompressor.register(
-    name=CompressionFormat.mxfp4_pack_quantized.value, alias=[CompressionFormat.nvfpp_b32_pack_quantized.value]
+    name=CompressionFormat.mxfp4_pack_quantized.value,
+    alias=[CompressionFormat.nvfpp_b32_pack_quantized.value, CompressionFormat.nvfpp_b16_pack_quantized.value],
 )
 class MXFP4PackedCompressor(BaseQuantizationCompressor):
     """
