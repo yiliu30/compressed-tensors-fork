@@ -659,6 +659,15 @@ from compressed_tensors.compressors.quantized_compressors.nvfp4_quantized import
 )
 
 
+def get_reciprocal(x):
+    if isinstance(x, torch.Tensor):
+        return torch.where(x == 0, torch.zeros_like(x, dtype=x.dtype), 1.0 / x)
+    elif isinstance(x, (float, int)):
+        return 0.0 if x == 0 else 1.0 / x
+    else:
+        raise TypeError("Input must be a float, int, or a torch.Tensor.")
+
+
 @torch.no_grad()
 def qdq_nvfpp(data_hp: torch.Tensor, group_size: int):
     orig_shape = data_hp.shape
@@ -668,7 +677,8 @@ def qdq_nvfpp(data_hp: torch.Tensor, group_size: int):
     descale = max_abs / max_pos
     scale_uint8 = float_to_nvfpp(descale.to(torch.float32))
     scale_float = nvfpp_to_float(scale_uint8)
-    scaled_data = (data_hp / scale_float).clamp(-FP4_E2M1_DATA.max, FP4_E2M1_DATA.max)
+    # !!! Critical: avoid div 0
+    scaled_data = (data_hp * get_reciprocal(scale_float)).clamp(-FP4_E2M1_DATA.max, FP4_E2M1_DATA.max)
     scaled_data_round = FP4_E2M1_DATA.cast_to_fp4(scaled_data)
     dequant_data = scaled_data_round * scale_float
     return dequant_data.reshape(orig_shape)

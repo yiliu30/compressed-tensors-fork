@@ -239,7 +239,7 @@ kE2M1ToFloat = torch.tensor(
 
 
 # reference: : https://github.com/vllm-project/vllm/pull/16362
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def unpack_fp4_from_uint8(
     a: torch.Tensor, m: int, n: int, dtype: Optional[torch.dtype] = torch.bfloat16
 ) -> torch.Tensor:
@@ -254,7 +254,7 @@ def unpack_fp4_from_uint8(
     :param n: original dim 1 size of the unpacked tensor
     :param dtype: dense dtype to cast the unpacked tensor to
     """
-    assert a.dtype == torch.uint8
+    assert a.dtype == torch.uint8, f"expected uint8, got {a.dtype}"
 
     # Vectorized nibble processing
     a_flat = a.flatten()
