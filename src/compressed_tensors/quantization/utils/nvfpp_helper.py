@@ -195,6 +195,7 @@ def float_to_nvfpp_v2(x):
     Convert floating-point tensor to E5M3 format (5 exponent bits, 3 mantissa bits)
 
     """
+    assert x.dtype == torch.float32, f"Input tensor must be of type torch.float32, got {x.dtype}"
     # assert not (x < 0).any(), "Only support non-negative values"
     # Initialize result tensor
     result = torch.zeros_like(x, dtype=torch.uint8)
@@ -418,7 +419,7 @@ def nvfpp_to_float_v2(e5m3_data):
     # result_denormal = denormal_val_in_bits.view(torch.float32) * denorm_mask
     # result[denorm_mask] = result_denormal[denorm_mask]
     result = result_normal + result_denormal + result * (nan_mask | zero_mask)
-    print(f"All posible E5M3 values:", result)
+    # print(f"All posible E5M3 values:", result)
     return result
 
 
@@ -618,6 +619,100 @@ def bench_to_nvfpp():
         print(
             f"Shape: {shape}, Optimized Time: {optimized_time:.6f}s, Original Time: {original_time:.6f}s speedup: {original_time/optimized_time:.2f}x"
         )
+
+
+class FloatArgs:
+    exponent: int
+    mantissa: int
+    bits: int
+    max: float
+    min: float
+
+
+class FP4_E2M1_DATA(FloatArgs):
+    exponent = 2
+    mantissa = 1
+    bits = 4
+    max = 6.0
+    min = -6.0
+
+    # https://github.com/vllm-project/vllm/blob/ebb554cdb7cd9cc54b2feec20c45ab9cd9067d52/tests/kernels/test_nvfp4_quant.py
+    @staticmethod
+    def cast_to_fp4(x):
+        sign = torch.sign(x)
+        x = torch.abs(x)
+
+        step1 = torch.round(2.0 * x) / 2.0
+        step2 = torch.round(x)
+        step3 = 2.0 * torch.round(x / 2.0)
+
+        mask1 = x < 2.0
+        mask2 = x < 4.0
+        x = step1 * mask1 + step2 * (~mask1) * mask2 + step3 * (~mask1) * (~mask2)
+        x = x.clamp(-6, 6)
+
+        return x * sign
+
+
+from compressed_tensors.compressors.quantized_compressors.nvfp4_quantized import (
+    unpack_fp4_from_uint8,
+)
+
+
+@torch.no_grad()
+def qdq_nvfpp(data_hp: torch.Tensor, group_size: int):
+    orig_shape = data_hp.shape
+    data_hp = data_hp.reshape(-1, group_size)
+    max_abs = data_hp.abs().max(dim=1, keepdim=True).values
+    max_pos = FP4_E2M1_DATA.max
+    descale = max_abs / max_pos
+    scale_uint8 = float_to_nvfpp(descale.to(torch.float32))
+    scale_float = nvfpp_to_float(scale_uint8)
+    scaled_data = (data_hp / scale_float).clamp(-FP4_E2M1_DATA.max, FP4_E2M1_DATA.max)
+    scaled_data_round = FP4_E2M1_DATA.cast_to_fp4(scaled_data)
+    dequant_data = scaled_data_round * scale_float
+    return dequant_data.reshape(orig_shape)
+
+
+def reshape_data(data, group_size):
+    orig_shape = data.shape
+    data_reshaped = data.reshape(-1, group_size)
+    return data_reshaped, orig_shape
+
+
+def reverse_reshape_data(data, orig_shape):
+    data_reversed = data.reshape(orig_shape)
+    return data_reversed
+
+
+def unpack_weight(weight_uint8, dtype=torch.bfloat16):
+    m, nx2 = weight_uint8.shape
+    n = nx2 * 2
+    weight_float = unpack_fp4_from_uint8(weight_uint8, m, n, dtype)
+    return weight_float
+
+
+def dequant_packed_nvfpp(packed_data: torch.Tensor, data_scale: torch.Tensor, group_size: int) -> torch.Tensor:
+    unpacked_data = unpack_weight(packed_data)
+    unpacked_data, orig_shape = reshape_data(unpacked_data, group_size)
+    data_scale, data_scale_shape = reshape_data(data_scale, group_size)
+    dequant_data = unpacked_data * data_scale
+    dequant_data = reverse_reshape_data(dequant_data, orig_shape)
+    return dequant_data
+
+
+# def run_nvfpp_emulation(
+#     x: torch.Tensor,
+#     weight: torch.Tensor,
+#     weight_scale: torch.Tensor,
+#     # input_global_scale: torch.Tensor | None = None,
+#     # weight_global_scale: torch.Tensor | None = None,
+# ) -> torch.Tensor:
+#     # !!!NOTE: This func not handle the bias
+#     dequanted_weight = dequant_packed_nvfpp(weight, weight_scale)
+#     qdq_x = qdq_nvfpp(x)
+#     out = qdq_x @ dequanted_weight.t()
+#     return out
 
 
 # bench_to_nvfpp()
