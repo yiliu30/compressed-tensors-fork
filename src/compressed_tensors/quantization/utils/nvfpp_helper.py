@@ -3,7 +3,7 @@ import torch
 
 import torch
 
-torch.set_printoptions(precision=8)
+torch.set_printoptions(precision=12)
 import numpy as np
 
 
@@ -130,8 +130,6 @@ def simulate_fp8_precision(input, variant):
     return vals * signs
 
 
-
-
 import torch
 
 
@@ -190,7 +188,8 @@ def float_to_nvfpp_v1(x):
 
     return result
 
-@torch.compile(fullgraph=True)
+
+# @torch.compile(fullgraph=True)
 def float_to_nvfpp_v2(x):
     """
     Convert floating-point tensor to E5M3 format (5 exponent bits, 3 mantissa bits)
@@ -220,8 +219,9 @@ def float_to_nvfpp_v2(x):
     # The minimum normal number in E5M3 is 2**(-14)
     # 00001 mmm
     #     ^
+    # FIXME: (Yi) there are some issue for denormal value, need to fix it
     is_denormal = x < (2 ** (-14))
-    denormal_mask =  x < (2 ** (-14))
+    denormal_mask = x < (2 ** (-14))
     denormal_res = x * denormal_mask
 
     _x_bits_denormal = x_bits * denormal_mask
@@ -232,7 +232,6 @@ def float_to_nvfpp_v2(x):
     f_bits_denornal = f_bits_denornal.view(torch.int32) - DENORM_MASK_VALUE
     denormal_res = f_bits_denornal.to(torch.uint8)
     normal_mask = ~(nan_mask | is_denormal)
-    # breakpoint()
     # x_bits = x_bits[normal_mask]
     x_bits_normal = x_bits * normal_mask
     mant_odd = (x_bits_normal >> 20) & 1
@@ -246,7 +245,7 @@ def float_to_nvfpp_v2(x):
     x_bits_normal += mant_odd
     x_bits_remove_right_zeros = x_bits_normal >> 20
     normal_res = (x_bits_remove_right_zeros & 0xFF).to(torch.uint8)
-    final_res = denormal_res * denormal_mask  + normal_res * normal_mask
+    final_res = denormal_res * denormal_mask + normal_res * normal_mask
     return final_res
 
 
@@ -296,7 +295,11 @@ def parse_e5m3(e5m3_tensor):
     return result
 
 
-def nvfpp_to_float_v2(e5m3_data):
+F32_EXP_BIAS = 127
+NVFPP_EXP_BIAS = 15
+
+
+def nvfpp_to_float_v3(e5m3_data):
     """
     Convert E5M3 8-bit format to 32-bit float.
 
@@ -319,10 +322,46 @@ def nvfpp_to_float_v2(e5m3_data):
     #      +---+-----+------------+-------------------+
     #                     ^^^ ^^^^                      <- << 7
     #
-    # Only add 7 zeros
+    # Add 7 zeros -> start handle FP16
+    # TODO: can we use to.(torch.float32)?
+    temp = e5m3_data.to(torch.int32) << 7
+
+
+# @torch.compile(fullgraph=True)
+def nvfpp_to_float_v2(e5m3_data):
+    """
+    Convert E5M3 8-bit format to 32-bit float.
+
+    Args:
+        e5m3_data: Tensor of uint8 values in E5M3 format
+
+    Returns:
+        Tensor of float32 values
+    """
+    assert e5m3_data.dtype == torch.uint8, f"Input tensor must be of type torch.uint8, got {e5m3_data.dtype}"
+
+    # upper part of the 32-bit word:
+    #      +----+----+-----------------------------+
+    #      |EEEEE|MMM|0000 0000 0000 0000 0000 0000|
+    #      +----+----+-----------------------------+
+    # Bits  31  26-30    16-25            0-15
+    #      +---+-----+------------+-------------------+
+    #      | S |EEEEE|MM MMMM MMMM|0000 0000 0000 0000|
+    #      +---+-----+------------+-------------------+
+    #                     ^^^ ^^^^                      <- << 7
+    #
+    # Add 7 zeros -> start handle FP16
+    # TODO: can we use to.(torch.float32)?
     temp = e5m3_data.to(torch.int32) << 7
 
     # Extract components
+    # sign should always be 0 for nvfpp
+    # Bits  15  10-14     0-9
+    #      +---+-----+------------+
+    #      | S |EEEEE|MM MMMM MMMM|
+    #      +---+-----+------------+
+    #                     ^^^ ^^^^ <-- New added 7 zeros
+    #      sign| exp |  mantissa  |
     sign = (temp >> 15) & 0x1
     exp = (temp >> 10) & 0x1F
     mant = temp & 0x3FF
@@ -337,51 +376,51 @@ def nvfpp_to_float_v2(e5m3_data):
     result[zero_mask & (sign == 1)] = -0.0  # Apply sign to zeros
 
     # Case 2: Infinity/NaN (exp=31)
-    inf_mask = 0
-    # inf_mask = (exp == 31)
-    # result[inf_mask & (sign == 0)] = float('inf')
-    # result[inf_mask & (sign == 1)] = float('-inf')
-    # nan mask 11111 111
-
+    # No Inf,
+    # Nan mask 11111 111
     nan_mask = (exp == 31) & (((mant >> 7) & 0b111) == 0b111)
     result[nan_mask] = float("nan")
-    # breakpoint()
+
     # Case 3: Normal numbers
     # normal_mask = (exp != 0) & (exp != 31)
     normal_mask = (exp != 0) & ~nan_mask
     # TODO: remove the sign check
-
-    exp = exp * normal_mask
-    sign = sign * normal_mask
-    mant = mant * normal_mask
-    normal_exp = exp + (127 - 15)  # Adjust bias
-    bits = (sign << 31) | (normal_exp << 23) | (mant << 13)
-    result_normal = bits.view(torch.float32) * normal_mask
+    # filter the normal value
+    normal_val_exp = exp * normal_mask
+    normal_val_sign = sign * normal_mask
+    normal_val_mant = mant * normal_mask
+    # Adjust bias to match FP32
+    normal_exp_adjust = normal_val_exp + (F32_EXP_BIAS - NVFPP_EXP_BIAS)
+    # Bits  31   30-23     22-0
+    #      +---+----------+----------------------------+
+    #      | S |EEE EEEE E|MMM MMMM MMMM MMMM MMMM MMMM|
+    #      +---+----------+----------------------------+
+    normal_val_in_bits = (normal_val_sign << 31) | (normal_exp_adjust << 23) | (normal_val_mant << 13)
+    result_normal = normal_val_in_bits.view(torch.float32) * normal_mask
+    # update the result
+    # result[normal_mask] = result_normal[normal_mask]
 
     # Case 4: Denormals (exp=0, mant≠0)
-    # denorm_mask = (exp == 0) & (mant != 0)
-    # # FIXME: ADD that denorm check
-    # if denorm_mask.any():
-    #     for idx in torch.nonzero(denorm_mask, as_tuple=True)[0]:
-    #         m = mant[idx].item()
+    denorm_mask = (exp == 0) & (mant != 0)
 
-    #         # Count leading zeros in 10-bit mantissa
-    #         leading_zeros = 0
-    #         test_bit = 0x200  # Start with bit 9 (highest bit in 10-bit mantissa)
-    #         while test_bit > 0 and (m & test_bit) == 0:
-    #             leading_zeros += 1
-    #             test_bit >>= 1
-
-    #         # Calculate adjusted exponent and mantissa as in C++ code
-    #         e = 127 - 15 - leading_zeros
-    #         m = (m << (leading_zeros + 1)) & 0x3FF
-    #         s = sign[idx].item()
-
-    #         # Create IEEE 754 bit pattern
-    #         bits = (s << 31) | (e << 23) | (m << 13)
-    #         result[idx] = torch.tensor([bits], dtype=torch.int32, device=device).view(torch.float32).item()
-    result = result_normal
+    # 2^(-14) * (0.b1b2b3)
+    denormal_val_mant = mant * denorm_mask
+    # Fetch the first 3 bits of mantissa
+    mantissa_fraction = (denormal_val_mant >> 7).float() / (2**3)
+    result_denormal = (2 ** (-14)) * mantissa_fraction
+    result_denormal = result_denormal * denorm_mask
+    # below method is wrong, as FP32 add implicit leading 1 for normal number mantissa
+    # denormal_val_exp = exp * denorm_mask
+    # denormal_val_exp_adjust = denormal_val_exp +  (F32_EXP_BIAS - (NVFPP_EXP_BIAS-1))
+    # denormal_val_mant = mant * denorm_mask
+    # denormal_val_sign = sign * denorm_mask
+    # denormal_val_in_bits = (denormal_val_sign << 31) | (denormal_val_exp_adjust << 23) | (denormal_val_mant << 13)
+    # result_denormal = denormal_val_in_bits.view(torch.float32) * denorm_mask
+    # result[denorm_mask] = result_denormal[denorm_mask]
+    result = result_normal + result_denormal + result * (nan_mask | zero_mask)
+    print(f"All posible E5M3 values:", result)
     return result
+
 
 def nvfpp_to_float_v1(e5m3_data):
     """
@@ -467,8 +506,11 @@ def nvfpp_to_float_v1(e5m3_data):
 
     return result
 
+
 nvfpp_to_float = nvfpp_to_float_v2
+# nvfpp_to_float = nvfpp_to_float_v3
 float_to_nvfpp = float_to_nvfpp_v2
+
 
 def test_all_possible_vals():
     import torch
@@ -520,6 +562,7 @@ def test_convert_float_to_e5m3():
     fp32_values_excl_nan = fp32_values_excl_nan[:]
     print(f"fp32_values_excl_nan: {fp32_values_excl_nan}")
     mid_val = (fp32_values_excl_nan[:-1] + fp32_values_excl_nan[1:]) / 2
+    # mid_val = fp32_values_excl_nan
     print(f"mid_val: {mid_val}")
     mid_val_sim = simulate_fp8_precision(mid_val, DATYE_FP8E5M3)
     round_min_val_uint8 = float_to_nvfpp_v2(mid_val)
@@ -540,22 +583,24 @@ def test_convert_float_to_e5m3():
     # Print all va
     print(f"Total mismatches: {diff_cnt} out of {len(mid_val)}")
 
+
 def bench_to_nvfpp():
-        # Define shapes to benchmark
+    # Define shapes to benchmark
     shapes = [
-        (1024,),           # 1K elements
-        (32, 32),          # 1K elements, 2D
-        (1024, 1024),      # 1M elements
-        (4096, 4096),      # 1M elements
-        (1024 * 128, 4096 ),      # 1M elements
-        (8, 1024, 1024),   # 8M elements
+        (1024,),  # 1K elements
+        (32, 32),  # 1K elements, 2D
+        (1024, 1024),  # 1M elements
+        (4096, 4096),  # 1M elements
+        (1024 * 128, 4096),  # 1M elements
+        (8, 1024, 1024),  # 8M elements
         (16, 2048, 1024),  # 32M elements
     ]
     import torch
     import numpy as np
     from triton.testing import do_bench
+
     for shape in shapes:
-        x = torch.randn(shape, device='cuda', dtype=torch.float32)
+        x = torch.randn(shape, device="cuda", dtype=torch.float32)
 
         # Warm-up
         for _ in range(10):
@@ -570,9 +615,11 @@ def bench_to_nvfpp():
         original_time = do_bench(lambda: x.to(torch.float8_e4m3fn), rep=100)
         torch.cuda.synchronize()
 
-        print(f"Shape: {shape}, Optimized Time: {optimized_time:.6f}s, Original Time: {original_time:.6f}s speedup: {original_time/optimized_time:.2f}x")
-    
+        print(
+            f"Shape: {shape}, Optimized Time: {optimized_time:.6f}s, Original Time: {original_time:.6f}s speedup: {original_time/optimized_time:.2f}x"
+        )
 
-# bench_to_nvfpp() 
-    
-test_convert_float_to_e5m3()
+
+# bench_to_nvfpp()
+
+# test_convert_float_to_e5m3()
