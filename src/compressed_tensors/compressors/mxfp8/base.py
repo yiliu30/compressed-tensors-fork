@@ -67,10 +67,10 @@ class MXFP8QuantizationCompressor(NaiveQuantizationCompressor):
         """
         state_dict = state_dict.copy()
 
-        # Convert E8M0 scale back to float
+        # Convert E8M0 scale back to bfloat16 for consistency with model dtype
         scale = state_dict["weight_scale"]
         scale_exp = scale.to(torch.int32) - 127
-        scale_float = 2.0 ** scale_exp.to(torch.float32)
+        scale_float = 2.0 ** scale_exp.to(torch.bfloat16)
         state_dict["weight_scale"] = scale_float
 
         return NaiveQuantizationCompressor.decompress(state_dict, scheme)
