@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import math
+
 import torch
 from compressed_tensors.quantization.quant_args import (
     BFLOAT16_DATA,
     FLOAT32_DATA,
     FP4_E2M1_DATA,
+    FP8_E4M3_DATA,
     QuantizationArgs,
 )
 
@@ -22,6 +25,15 @@ __all__ = [
 ]
 
 # Reference: https://github.com/vllm-project/vllm/blob/main/tests/quantization/reference_mxfp4.py # noqa: E501
+
+# The exponent offset maps the group max into the quantized type's
+# representable range.  It equals floor(log2(type_max)):
+#   FP4 E2M1  max=6.0   -> floor(log2(6))   = 2
+#   FP8 E4M3  max=448.0 -> floor(log2(448)) = 8
+_MX_ELEM_OFFSET = {
+    4: int(math.floor(math.log2(FP4_E2M1_DATA.max))),  # 2
+    8: int(math.floor(math.log2(FP8_E4M3_DATA.max))),  # 8
+}
 
 
 def should_generate_mx_scales(args: QuantizationArgs):
@@ -93,24 +105,32 @@ def round_to_power_2(x: torch.Tensor) -> torch.Tensor:
     return block_max_uint.view(scale_dtype)
 
 
-def generate_mx_scales(x: torch.Tensor) -> torch.Tensor:
+def generate_mx_scales(x: torch.Tensor, num_bits: int = 4) -> torch.Tensor:
     """
     Generate MX scales (for MXFP4 and MXFP8). The scales require the
     following steps:
     1. Round to the closest power of 2
-    2. Convert to exponent
+    2. Subtract the element-format offset so that the largest group
+       values map into the quantized type's representable range
+    3. Convert to biased E8M0 exponent (bias 127)
 
     Called when calculating qparams using observers.
 
-    :param x: tensor to round to closest power of 2
-    :returns scales as exponents
+    :param x: tensor of per-group max absolute values
+    :param num_bits: quantized element width (4 for MXFP4, 8 for MXFP8)
+    :returns scales as E8M0 exponents (uint8 after rounding)
     """
+    offset = _MX_ELEM_OFFSET[num_bits]
     # Round to closest power of 2
     scale_power_2 = round_to_power_2(x)
-    return 127 + torch.floor(torch.log2(scale_power_2)) - 2
+    return 127 + torch.floor(torch.log2(scale_power_2)) - offset
 
 
 # Backward-compatible aliases
 should_generatre_mxfp4_scales = should_generate_mx_scales
 maybe_convert_from_mxfp4_exp = maybe_convert_from_mx_exp
-generate_mxfp4_scales = generate_mx_scales
+
+
+def generate_mxfp4_scales(x: torch.Tensor) -> torch.Tensor:
+    """Backward-compatible alias for generate_mx_scales with num_bits=4."""
+    return generate_mx_scales(x, num_bits=4)
