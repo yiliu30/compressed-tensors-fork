@@ -11,32 +11,40 @@ from compressed_tensors.quantization.quant_args import (
 
 
 __all__ = [
+    "maybe_convert_from_mx_exp",
+    "generate_mx_scales",
+    "round_to_power_2",
+    "should_generate_mx_scales",
+    # backward-compat aliases
     "maybe_convert_from_mxfp4_exp",
     "generate_mxfp4_scales",
-    "round_to_power_2",
     "should_generatre_mxfp4_scales",
 ]
 
 # Reference: https://github.com/vllm-project/vllm/blob/main/tests/quantization/reference_mxfp4.py # noqa: E501
 
 
-def should_generatre_mxfp4_scales(args: QuantizationArgs):
-    return args.num_bits == 4 and args.type == "float" and args.group_size == 32
+def should_generate_mx_scales(args: QuantizationArgs):
+    return (
+        args.type == "float"
+        and args.group_size == 32
+        and args.scale_dtype == torch.uint8
+    )
 
 
-def maybe_convert_from_mxfp4_exp(
+def maybe_convert_from_mx_exp(
     args: QuantizationArgs, scale: torch.Tensor
 ) -> torch.Tensor:
     """
-    Converts mxfp4 scales. Scales are powers of 2, with the
+    Converts MX (MXFP4/MXFP8) scales. Scales are powers of 2, with the
     exponents stored in uint8. Converts to dense dtype so that
     they can be applied to the weights and activations during QDQ
 
+    :param args: quantization args
     :param scale: uint8 exponent scale
-    :param dtype: dense dtype
     """
     original_dtype = scale.dtype
-    if should_generatre_mxfp4_scales(args):
+    if should_generate_mx_scales(args):
         scale_exp = scale.to(torch.int32) - 127
         scale = 2.00 ** (scale_exp.to(torch.float))
         return scale.to(original_dtype)
@@ -85,9 +93,10 @@ def round_to_power_2(x: torch.Tensor) -> torch.Tensor:
     return block_max_uint.view(scale_dtype)
 
 
-def generate_mxfp4_scales(x: torch.Tensor) -> torch.Tensor:
+def generate_mx_scales(x: torch.Tensor) -> torch.Tensor:
     """
-    Generate mxfp4 scales. The scales require the following steps
+    Generate MX scales (for MXFP4 and MXFP8). The scales require the
+    following steps:
     1. Round to the closest power of 2
     2. Convert to exponent
 
@@ -99,3 +108,9 @@ def generate_mxfp4_scales(x: torch.Tensor) -> torch.Tensor:
     # Round to closest power of 2
     scale_power_2 = round_to_power_2(x)
     return 127 + torch.floor(torch.log2(scale_power_2)) - 2
+
+
+# Backward-compatible aliases
+should_generatre_mxfp4_scales = should_generate_mx_scales
+maybe_convert_from_mxfp4_exp = maybe_convert_from_mx_exp
+generate_mxfp4_scales = generate_mx_scales
