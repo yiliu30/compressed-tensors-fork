@@ -79,7 +79,9 @@ def calculate_qparams(
     if quantization_args.symmetric:
         max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
         if should_generate_mx_scales(args=quantization_args):
-            scales = generate_mx_scales(x=max_val_pos)
+            scales = generate_mx_scales(
+                x=max_val_pos, num_bits=quantization_args.num_bits
+            )
         else:
             scales = max_val_pos / (float(bit_range) / 2)
         zero_points = torch.zeros(scales.shape, device=device, dtype=min_vals.dtype)

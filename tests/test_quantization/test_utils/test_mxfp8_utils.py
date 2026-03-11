@@ -86,11 +86,11 @@ def test_mxfp8_scales_e2e(dtype):
         zp_dtype=torch.uint8,
     )
 
-    scales = generate_mx_scales(block_max)
+    scales = generate_mx_scales(block_max, num_bits=8)
     scales = round_to_quantized_type_dtype(scales, dtype=args.scale_dtype)
 
     converted_ct = maybe_convert_from_mx_exp(args=args, scale=scales)
 
     scales_exp = torch.log2(converted_ct)
-    block_max_exp = torch.floor(torch.log2(round_to_power_2(block_max))) - 2
+    block_max_exp = torch.floor(torch.log2(round_to_power_2(block_max))) - 8
     assert torch.equal(scales_exp, block_max_exp)
