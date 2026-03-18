@@ -8,7 +8,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
 )
-from compressed_tensors.quantization.observers.helpers import calculate_qparams
+from compressed_tensors.quantization.utils.helpers import calculate_qparams
 
 
 def test_mxfp8_compress_decompress():
