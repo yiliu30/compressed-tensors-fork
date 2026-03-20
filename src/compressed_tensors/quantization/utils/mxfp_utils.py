@@ -35,7 +35,8 @@ _MX_ELEM_OFFSET = {
 
 def should_generate_mx_scales(args: QuantizationArgs):
     return (
-        args.type == QuantizationType.FLOAT.value
+        args.num_bits in (4, 8)
+        and args.type == QuantizationType.FLOAT.value
         and args.group_size == 32
         and args.scale_dtype == torch.uint8
     )

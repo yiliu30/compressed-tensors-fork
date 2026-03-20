@@ -3,6 +3,10 @@
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
+from compressed_tensors.compressors.mx_utils import (
+    compress_mx_scale,
+    decompress_mx_scale,
+)
 from compressed_tensors.compressors.naive_quantized.base import (
     NaiveQuantizationCompressor,
 )
@@ -34,8 +38,11 @@ class MXFP8QuantizationCompressor(NaiveQuantizationCompressor):
         cls, scale: torch.Tensor, weights: QuantizationArgs
     ) -> torch.Tensor:
         assert weights.scale_dtype is not None
-        scale_exp = 127 + torch.floor(torch.log2(scale)).to(torch.int32)
-        return scale_exp.to(weights.scale_dtype)
+        return compress_mx_scale(scale, weights.scale_dtype)
+
+    @classmethod
+    def _decompress_scale(cls, scale: torch.Tensor) -> torch.Tensor:
+        return decompress_mx_scale(scale)
 
     @classmethod
     def compress(
@@ -77,9 +84,7 @@ class MXFP8QuantizationCompressor(NaiveQuantizationCompressor):
 
         # Convert E8M0 scale back to bfloat16 for consistency with model dtype
         scale = state_dict["weight_scale"]
-        scale_exp = scale.to(torch.int32) - 127
-        scale_float = 2.0 ** scale_exp.to(torch.bfloat16)
-        state_dict["weight_scale"] = scale_float
+        state_dict["weight_scale"] = cls._decompress_scale(scale)
 
         return NaiveQuantizationCompressor.decompress(state_dict, scheme)
 
