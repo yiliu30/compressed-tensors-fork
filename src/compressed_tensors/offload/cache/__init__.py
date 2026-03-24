@@ -3,7 +3,7 @@
 
 # flake8: noqa
 
-from .base import OffloadCache
+from .base import OffloadCache, is_accelerator_type
 from .cpu import CPUCache
 from .device import DeviceCache
 from .disk import DiskCache

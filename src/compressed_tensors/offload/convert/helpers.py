@@ -6,6 +6,7 @@ from typing import Iterable, Literal
 
 import torch
 import torch.distributed as dist
+from compressed_tensors.offload.cache import is_accelerator_type
 from compressed_tensors.offload.dist_utils import is_distributed
 
 
@@ -34,7 +35,11 @@ def norm_device(
         device = torch.device(type=device.type, index=None)
 
     # (non-dist) "cuda" -> "cuda:0"
-    if not is_distributed() and device.type == "cuda" and device.index is None:
+    if (
+        not is_distributed()
+        and is_accelerator_type(device.type)
+        and device.index is None
+    ):
         device = torch.device(type=device.type, index=0)
 
     return device

@@ -87,14 +87,14 @@ def patch_from_pretrained(obj: cls_to_patch, extra_cpu_mem: int):
 
 
 def _get_device_memory() -> dict[int, int]:
-    # TODO: extend to xpu, ect.
     if is_distributed():
         index = dist.get_rank()
-        return {index: torch.cuda.get_device_properties(index).total_memory}
+        free, total = torch.accelerator.get_memory_info(index)
+        return {index: total}
     else:
         return {
-            index: torch.cuda.get_device_properties(index).total_memory
-            for index in range(torch.cuda.device_count())
+            index: torch.accelerator.get_memory_info(index)[1]
+            for index in range(torch.accelerator.device_count())
         }
 
 

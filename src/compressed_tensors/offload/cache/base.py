@@ -10,6 +10,13 @@ import torch
 import torch.distributed as dist
 
 
+def is_accelerator_type(device_type: str) -> bool:
+    """Check if a device type is a hardware accelerator (cuda, xpu, etc.)."""
+    if not torch.accelerator.is_available():
+        return False
+    return device_type == torch.accelerator.current_accelerator().type
+
+
 class OffloadCache(MutableMapping, ABC):
     """
     Base class for offload caches. Subclasses must implement `offload` and `onload`.
@@ -71,9 +78,9 @@ class OffloadCache(MutableMapping, ABC):
                 return CPUCache
             case ("cpu", True):
                 return DistributedCPUCache
-            case ("cuda", False):
+            case (accel, False) if is_accelerator_type(accel):
                 return DeviceCache
-            case ("cuda", True):
+            case (accel, True) if is_accelerator_type(accel):
                 return DistributedDeviceCache
             case ("disk", False):
                 return DiskCache
