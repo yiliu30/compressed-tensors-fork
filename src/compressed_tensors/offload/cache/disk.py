@@ -66,13 +66,23 @@ class DiskCache(OffloadCache):
         weight_info = self.index[offloaded]
         device = _get_safe_open_device(self.onload_device)
 
-        with safe_open(
-            weight_info["safetensors_file"], framework="pt", device=device
-        ) as file:
-            onloaded = file.get_tensor(weight_info["weight_name"])
-            onloaded = to_tensor(onloaded, offloaded)
-            onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
-            return onloaded
+        try:
+            with safe_open(
+                weight_info["safetensors_file"], framework="pt", device=device
+            ) as file:
+                onloaded = file.get_tensor(weight_info["weight_name"])
+        except (ValueError, RuntimeError):
+            # Backend's device string not supported by safetensors — fall back
+            # to CPU load, then move to the target device.
+            with safe_open(
+                weight_info["safetensors_file"], framework="pt", device="cpu"
+            ) as file:
+                onloaded = file.get_tensor(weight_info["weight_name"])
+            onloaded = onloaded.to(self.onload_device)
+
+        onloaded = to_tensor(onloaded, offloaded)
+        onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
+        return onloaded
 
     def offload(
         self, tensor: torch.Tensor | None, offloaded: Optional[torch.Tensor] = None

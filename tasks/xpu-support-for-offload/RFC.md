@@ -60,10 +60,11 @@ full support automatically:
 | `torch.cuda.set_device(dev)` | `torch.accelerator.set_device_index(idx)` |
 | `torch.cuda.get_device_properties(i).total_memory` | `torch.accelerator.get_memory_info(i)[1]` |
 | `torch.device(f"cuda:{idx}")` | `torch.device(accel_type, idx)` |
-| `backend="nccl"` | `dist.Backend.default_device_backend_map[accel_type]` |
+| `backend="nccl"` | `dist.get_default_backend_for_device(torch.device(accel_type))` |
 
-The distributed backend map is maintained by PyTorch: `cuda→nccl`, `xpu→xccl`,
-`npu→hccl`, `mps→gloo`.
+The distributed backend is resolved via the public API
+`dist.get_default_backend_for_device()`, which queries PyTorch's registered
+backend model: `cuda→nccl`, `xpu→xccl`, `npu→hccl`, `mps→gloo`.
 
 ## Scope
 
@@ -146,7 +147,7 @@ Same pattern — replace `torch.cuda.get_device_properties(i).total_memory` with
 accel_type = torch.accelerator.current_accelerator().type
 device = torch.device(accel_type, local_rank)
 torch.accelerator.set_device_index(local_rank)
-backend = dist.Backend.default_device_backend_map[accel_type]
+backend = dist.get_default_backend_for_device(device)
 dist.init_process_group(backend=backend, ...)
 ```
 
@@ -164,7 +165,7 @@ infrastructure is CUDA-specific in multiple places that must be migrated togethe
 | File | Current CUDA usage | Required change |
 |------|-------------------|-----------------|
 | `tests/testing_utils.py` | `torch.cuda.device_count()` in `requires_gpu` | Use `torch.accelerator.is_available()` / `torch.accelerator.device_count()` |
-| `tests/test_offload/conftest.py` | `torch.cuda.current_device()`, `torch.cuda.set_device()`, `backend="nccl"` | Use `torch.accelerator` equivalents, backend from `default_device_backend_map` |
+| `tests/test_offload/conftest.py` | `torch.cuda.current_device()`, `torch.cuda.set_device()`, `backend="nccl"` | Use `torch.accelerator` equivalents, backend from `dist.get_default_backend_for_device()` |
 | `tests/test_offload/test_dispatch.py` | `patch("...torch.cuda")` mock objects | Patch `torch.accelerator` instead; update mock return shapes |
 | `tests/test_compressors/test_compress_decompress_module.py` | `torch.cuda.is_available()` guard | Use `torch.accelerator.is_available()` |
 | 10+ offload test files | `torch.device("cuda")` / `cuda_device` fixture | `accel_device` fixture → `torch.accelerator.current_accelerator()` |
@@ -198,26 +199,55 @@ fallback**, not just a risk:
 
 ### Fallback Path (for unverified backends)
 
-When `safe_open` does not recognize a device string, the existing
-`_get_safe_open_device()` in `cache/disk.py` already implements a CPU-load
-fallback. The updated implementation preserves this:
+`_get_safe_open_device()` computes the device argument, but it cannot handle
+rejection by `safe_open()` itself — that failure happens later in
+`DiskCache.onload()` when the file is actually opened. Therefore, the CPU
+fallback must live at the `safe_open()` call site:
 
 ```python
-def _get_safe_open_device(device):
-    if is_accelerator_type(device.type):
-        try:
-            return device.index or torch.accelerator.current_device_index()
-        except Exception:
-            return "cpu"  # fallback: load to CPU, then .to(device)
-    return device.type
+def onload(self, offloaded: torch.Tensor | None) -> torch.Tensor | None:
+    if offloaded is None:
+        return None
+
+    weight_info = self.index[offloaded]
+    device = _get_safe_open_device(self.onload_device)
+
+    try:
+        with safe_open(
+            weight_info["safetensors_file"], framework="pt", device=device
+        ) as file:
+            onloaded = file.get_tensor(weight_info["weight_name"])
+    except (ValueError, RuntimeError):
+        # Backend's device string not supported by safetensors — fall back
+        # to CPU load, then move to the target device.
+        with safe_open(
+            weight_info["safetensors_file"], framework="pt", device="cpu"
+        ) as file:
+            onloaded = file.get_tensor(weight_info["weight_name"])
+        onloaded = onloaded.to(self.onload_device)
+
+    onloaded = to_tensor(onloaded, offloaded)
+    onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
+    return onloaded
 ```
+
+`_get_safe_open_device()` itself remains a simple conversion helper with no
+try/except — it computes the best-effort device argument. The retry logic is
+confined to `onload()` where it can properly re-open the file on CPU.
+
+**Scope decision:** This fallback is added for Tier 1 backends (CUDA, XPU)
+where `safe_open` device support is already verified. For Tier 2 backends
+where `safe_open` may reject the device string, the fallback provides graceful
+degradation rather than a crash. If a Tier 2 backend proves problematic beyond
+safetensors compatibility, that is treated as a separate bug.
 
 ### Test Coverage
 
 - Add a parametrized test that verifies `safe_open` round-trip for each Tier 1
   backend's device string.
-- Add a test that verifies the CPU-fallback path activates when `safe_open`
-  rejects an unrecognized device string.
+- Add a test that verifies the CPU-fallback path in `DiskCache.onload()` activates
+  when `safe_open` rejects an unrecognized device string (mock `safe_open` to
+  raise `ValueError` on first call).
 
 ## Distributed Backend Design
 
@@ -227,10 +257,15 @@ def _get_safe_open_device(device):
 
 ### Proposed Behavior
 
-Use PyTorch's registered backend mapping:
+Use PyTorch's public API for backend resolution:
 ```python
-backend = dist.Backend.default_device_backend_map[accel_type]
+backend = dist.get_default_backend_for_device(torch.device(accel_type))
 ```
+
+This is preferred over direct indexing into `dist.Backend.default_device_backend_map`
+because `get_default_backend_for_device()` is the public contract for this
+decision. If the RFC's goal is "use PyTorch's backend registration model," we
+should lean on the public API that expresses that contract directly.
 
 ### Backend Maturity and Error Handling
 
@@ -248,8 +283,9 @@ distributed cache (`dist.broadcast`, `dist.barrier`, `dist.all_reduce`):
 If a backend's collective library is broken, the failure should surface
 immediately and clearly — wrapping it would mask the root cause. Instead:
 
-- `init_dist()` raises `KeyError` with a clear message if `accel_type` is not in
-  `default_device_backend_map`.
+- `init_dist()` raises `RuntimeError` with a clear message if
+  `get_default_backend_for_device()` cannot resolve a backend for the
+  active accelerator type.
 - Collective call failures propagate as-is from PyTorch — the error messages
   from NCCL/XCCL/HCCL are informative enough for debugging.
 

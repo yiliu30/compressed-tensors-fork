@@ -33,7 +33,7 @@ def init_dist():
     device = torch.device(accel_type, local_rank)
     torch.accelerator.set_device_index(local_rank)
     dist.init_process_group(
-        backend=dist.Backend.default_device_backend_map[accel_type],
+        backend=dist.get_default_backend_for_device(device),
         init_method="env://",
         rank=rank,
         world_size=world_size,
