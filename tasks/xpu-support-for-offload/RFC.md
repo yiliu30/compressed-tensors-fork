@@ -2,20 +2,13 @@
 
 ## Summary
 
-Replace hardcoded `torch.cuda.*` calls in the offload stack with PyTorch's
-`torch.accelerator` API. This unlocks XPU (and NPU) support with minimal
-changes — no new abstraction layers, no new files.
+Replace hardcoded `torch.cuda.*` calls in the offload stack with PyTorch's `torch.accelerator` API. This unlocks XPU (and NPU) support with minimal changes — no new abstraction layers, no new files.
 
 ## Motivation
 
-The `compressed_tensors` offload system moves model parameters between CPU,
-disk, and accelerator memory during quantization and inference. Most of the
-system is already device-agnostic — cache implementations, tensor movement,
-and the dispatch pipeline all work through `tensor.to(device)` and don't care
-what the target device is.
+The `compressed_tensors` offload system moves model parameters between CPU, disk, and accelerator memory during quantization and inference. Most of the system is already device-agnostic — cache implementations, tensor movement, and the dispatch pipeline all work through `tensor.to(device)` and don't care what the target device is.
 
-The problem is in the **device detection and memory query layer**, which is
-hardcoded to CUDA. On `main` today:
+The problem is in the **device detection and memory query layer**, which is hardcoded to CUDA. On `main` today:
 
 | Area | Files | CUDA-specific code |
 |------|-------|--------------------|
@@ -26,24 +19,14 @@ hardcoded to CUDA. On `main` today:
 
 > **9 `torch.cuda.*` calls** across 5 files + hardcoded `"cuda"` strings in a 6th.
 
-This means any non-CUDA accelerator — Intel XPU, Ascend NPU, or others —
-**cannot use the offload system at all**. `dispatch_model()` falls back to
-CPU-only because `torch.cuda.is_available()` returns `False`, even when XPU
-devices are present and working.
+This means any non-CUDA accelerator — Intel XPU, Ascend NPU, or others — **cannot use the offload system at all**. `dispatch_model()` falls back to CPU-only because `torch.cuda.is_available()` returns `False`, even when XPU devices are present and working.
 
-With growing adoption of Intel XPU (Arc, Data Center GPU Max, Gaudi) and
-Ascend NPU for model quantization and inference, this is a real blocker.
-The good news: **~35 lines across 6 files** turns CUDA-only offload into
-multi-accelerator offload.
+With growing adoption of Intel XPU (Arc, Data Center GPU Max, Gaudi) and Ascend NPU for model quantization and inference, this is a real blocker. The good news: **~35 lines across 6 files** turns CUDA-only offload into multi-accelerator offload.
 
 ## Approach: `torch.accelerator`
 
 PyTorch 2.6 introduced
-[`torch.accelerator`](https://pytorch.org/docs/stable/generated/torch.accelerator.html) —
-a built-in abstraction over hardware backends. Each `torch.cuda.*` call we use
-has a direct `torch.accelerator.*` equivalent (e.g., `torch.cuda.device_count()`
-→ `torch.accelerator.device_count()`). The API auto-detects the active backend
-at runtime, so the same code works everywhere.
+[`torch.accelerator`](https://pytorch.org/docs/stable/generated/torch.accelerator.html) — a built-in abstraction over hardware backends. Each `torch.cuda.*` call we use has a direct `torch.accelerator.*` equivalent (e.g., `torch.cuda.device_count()` → `torch.accelerator.device_count()`). The API auto-detects the active backend at runtime, so the same code works everywhere.
 
 **Supported backends:**
 
@@ -53,8 +36,7 @@ at runtime, so the same code works everywhere.
 | XPU | Built-in (since PyTorch 2.4) |
 | Ascend NPU | Via `torch.utils.rename_privateuse1_backend("npu")` |
 
-For distributed, PyTorch maintains a backend mapping (CUDA → NCCL, XPU → XCCL,
-NPU → HCCL) accessible via `dist.get_default_backend_for_device()`.
+For distributed, PyTorch maintains a backend mapping (CUDA → NCCL, XPU → XCCL, NPU → HCCL) accessible via `dist.get_default_backend_for_device()`.
 
 ## What Changes
 
