@@ -13,15 +13,13 @@ The problem is in the **device detection and memory query layer**, which is hard
 | Area | Files | CUDA-specific code |
 |------|-------|--------------------|
 | Device discovery & memory | `dispatch.py`, `load.py` | `torch.cuda.is_available()`, `device_count()`, `get_device_properties()` |
-| Cache routing | `cache/base.py`, `cache/disk.py` | Literal `"cuda"` string matching |
+| Cache routing | `cache/*.py` | Literal `"cuda"` string matching |
 | Distributed init | `dist_utils.py` | `backend="nccl"`, `torch.cuda.set_device()` |
 | Device normalization | `convert/helpers.py` | `device.type == "cuda"` |
 
-> **9 `torch.cuda.*` calls** across 5 files + hardcoded `"cuda"` strings in a 6th.
+This means any non-CUDA accelerator — Intel XPU, or others — **cannot use the offload system at all**. `dispatch_model()` falls back to CPU-only because `torch.cuda.is_available()` returns `False`, even when XPU devices are present and working.
 
-This means any non-CUDA accelerator — Intel XPU, Ascend NPU, or others — **cannot use the offload system at all**. `dispatch_model()` falls back to CPU-only because `torch.cuda.is_available()` returns `False`, even when XPU devices are present and working.
-
-With growing adoption of Intel XPU (Arc, Data Center GPU Max, Gaudi) and Ascend NPU for model quantization and inference, this is a real blocker. The good news: **~35 lines across 6 files** turns CUDA-only offload into multi-accelerator offload.
+With growing adoption of Intel XPU for model quantization and inference, this is a real blocker.
 
 ## Approach: `torch.accelerator`
 
@@ -57,11 +55,9 @@ All changes are in the offload module (`src/compressed_tensors/offload/`):
 |---------|------|--------|
 | CUDA | 1 | Fully supported, validated by existing CI |
 | XPU | 1 | Fully supported, validated on PyTorch 2.10.0+xpu (4× Intel Arc Pro B60) |
-| NPU | 2 | Expected to work, not yet CI-validated — bug reports welcome |
+| NPU | 2 | Expected to work, not yet CI-validated |
 
-- **Minimum PyTorch version:** `torch>=2.6.0` (no compatibility shim). All
-  downstream consumers (vLLM, llm-compressor) already require ≥2.1, and any
-  XPU/NPU user is on ≥2.6.
+- **Minimum PyTorch version:** `torch>=2.6.0` (no compatibility shim). All downstream consumers (vLLM, llm-compressor) already require ≥2.1, and any XPU/NPU user is on ≥2.6.
 
 ## Implementation Steps
 
@@ -84,10 +80,11 @@ All changes are in the offload module (`src/compressed_tensors/offload/`):
 | Distributed init + broadcast | ✓ | ✓ |
 | Full W4A16 quantization pipeline | ✓ | ✓ |
 
+> In the first stage, we will test XPU using a monkey-patch approach. Once XPU CI is set up, we will switch to real XPU tests.
+
 ## Risks
 
 | Risk | Mitigation |
 |------|------------|
 | **PyTorch version bump** — 2.6.0 minimum could affect users on older versions | Offload stack is recent; all major consumers already require ≥2.1 |
 | **Safetensors device strings** — not all backends verified | Scoped CPU fallback in `DiskCache.onload()` catches only device errors |
-| **Distributed maturity** — XCCL/HCCL vary in maturity | Errors propagate clearly from PyTorch, not masked |
