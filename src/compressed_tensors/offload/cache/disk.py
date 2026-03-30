@@ -8,12 +8,16 @@ import torch
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.dist_utils import is_rank0
 from compressed_tensors.offload.utils import send_tensors, to_tensor
-from safetensors import safe_open
+from safetensors import SafetensorError, safe_open
 from safetensors.torch import save_file
 
 
 if TYPE_CHECKING:
     from torch._prims_common import DeviceLikeType
+
+# Errors from safe_open() that indicate the device spec was rejected by
+# safetensors or the PyTorch backend — only these trigger the CPU fallback.
+_DEVICE_ERRORS = (SafetensorError, AssertionError)
 
 
 class DiskCache(OffloadCache):
@@ -66,18 +70,26 @@ class DiskCache(OffloadCache):
         weight_info = self.index[offloaded]
         device = _get_safe_open_device(self.onload_device)
 
+        # Attempt to open directly on the target accelerator device.
+        # If safetensors or the backend rejects the device spec, fall back to
+        # CPU load + .to(device).  The try/except is scoped to safe_open()
+        # only — tensor read errors from an already-open file are not masked.
         try:
-            with safe_open(
+            file = safe_open(
                 weight_info["safetensors_file"], framework="pt", device=device
-            ) as file:
-                onloaded = file.get_tensor(weight_info["weight_name"])
-        except (ValueError, RuntimeError):
-            # Backend's device string not supported by safetensors — fall back
-            # to CPU load, then move to the target device.
-            with safe_open(
+            )
+        except _DEVICE_ERRORS:
+            file = safe_open(
                 weight_info["safetensors_file"], framework="pt", device="cpu"
-            ) as file:
-                onloaded = file.get_tensor(weight_info["weight_name"])
+            )
+            use_cpu_fallback = True
+        else:
+            use_cpu_fallback = False
+
+        with file:
+            onloaded = file.get_tensor(weight_info["weight_name"])
+
+        if use_cpu_fallback:
             onloaded = onloaded.to(self.onload_device)
 
         onloaded = to_tensor(onloaded, offloaded)

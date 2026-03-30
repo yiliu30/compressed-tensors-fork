@@ -202,9 +202,18 @@ fallback**, not just a risk:
 `_get_safe_open_device()` computes the device argument, but it cannot handle
 rejection by `safe_open()` itself — that failure happens later in
 `DiskCache.onload()` when the file is actually opened. Therefore, the CPU
-fallback must live at the `safe_open()` call site:
+fallback must live at the `safe_open()` call site.
+
+The fallback is scoped strictly to **device-resolution failures** during
+`safe_open()`, not to tensor read errors from an already-open file:
 
 ```python
+from safetensors import SafetensorError, safe_open
+
+# Errors that indicate the device spec was rejected by safetensors or the
+# backend — these are the only cases where CPU fallback is appropriate.
+_DEVICE_ERRORS = (SafetensorError, AssertionError)
+
 def onload(self, offloaded: torch.Tensor | None) -> torch.Tensor | None:
     if offloaded is None:
         return None
@@ -212,18 +221,24 @@ def onload(self, offloaded: torch.Tensor | None) -> torch.Tensor | None:
     weight_info = self.index[offloaded]
     device = _get_safe_open_device(self.onload_device)
 
+    # try/except is scoped to safe_open() only — tensor read errors
+    # from an already-open file are not masked.
     try:
-        with safe_open(
+        file = safe_open(
             weight_info["safetensors_file"], framework="pt", device=device
-        ) as file:
-            onloaded = file.get_tensor(weight_info["weight_name"])
-    except (ValueError, RuntimeError):
-        # Backend's device string not supported by safetensors — fall back
-        # to CPU load, then move to the target device.
-        with safe_open(
+        )
+    except _DEVICE_ERRORS:
+        file = safe_open(
             weight_info["safetensors_file"], framework="pt", device="cpu"
-        ) as file:
-            onloaded = file.get_tensor(weight_info["weight_name"])
+        )
+        use_cpu_fallback = True
+    else:
+        use_cpu_fallback = False
+
+    with file:
+        onloaded = file.get_tensor(weight_info["weight_name"])
+
+    if use_cpu_fallback:
         onloaded = onloaded.to(self.onload_device)
 
     onloaded = to_tensor(onloaded, offloaded)
@@ -231,23 +246,27 @@ def onload(self, offloaded: torch.Tensor | None) -> torch.Tensor | None:
     return onloaded
 ```
 
-`_get_safe_open_device()` itself remains a simple conversion helper with no
-try/except — it computes the best-effort device argument. The retry logic is
-confined to `onload()` where it can properly re-open the file on CPU.
+Why these specific exception types:
+- `SafetensorError` — raised by safetensors for invalid/unknown device strings
+  (e.g., `"device bogus is invalid"`)
+- `AssertionError` — raised by PyTorch when a backend is not compiled in
+  (e.g., `"Torch not compiled with XPU enabled"`)
 
-**Scope decision:** This fallback is added for Tier 1 backends (CUDA, XPU)
-where `safe_open` device support is already verified. For Tier 2 backends
-where `safe_open` may reject the device string, the fallback provides graceful
-degradation rather than a crash. If a Tier 2 backend proves problematic beyond
-safetensors compatibility, that is treated as a separate bug.
+Other errors (I/O failures, corrupt files, invalid tensor names) propagate
+immediately — they are not device-resolution problems and should not be masked.
+
+`_get_safe_open_device()` itself remains a pure conversion helper with no
+try/except.
 
 ### Test Coverage
 
 - Add a parametrized test that verifies `safe_open` round-trip for each Tier 1
   backend's device string.
 - Add a test that verifies the CPU-fallback path in `DiskCache.onload()` activates
-  when `safe_open` rejects an unrecognized device string (mock `safe_open` to
-  raise `ValueError` on first call).
+  when `safe_open` raises `SafetensorError` (mock `safe_open` to raise on first
+  call with the device arg, succeed on second call with `"cpu"`).
+- Add a test that verifies non-device errors (e.g., `FileNotFoundError`, `KeyError`
+  from `get_tensor`) are **not** caught by the fallback — they must propagate.
 
 ## Distributed Backend Design
 
