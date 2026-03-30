@@ -6,8 +6,6 @@ Replace hardcoded `torch.cuda.*` calls in the offload stack with PyTorch's
 `torch.accelerator` API. This unlocks XPU (and NPU) support with minimal
 changes — no new abstraction layers, no new files.
 
----
-
 ## Motivation
 
 The `compressed_tensors` offload system moves model parameters between CPU,
@@ -38,8 +36,6 @@ Ascend NPU for model quantization and inference, this is a real blocker.
 The good news: **~35 lines across 6 files** turns CUDA-only offload into
 multi-accelerator offload.
 
----
-
 ## Approach: `torch.accelerator`
 
 PyTorch 2.6 introduced
@@ -60,8 +56,6 @@ at runtime, so the same code works everywhere.
 For distributed, PyTorch maintains a backend mapping (CUDA → NCCL, XPU → XCCL,
 NPU → HCCL) accessible via `dist.get_default_backend_for_device()`.
 
----
-
 ## What Changes
 
 All changes are in the offload module (`src/compressed_tensors/offload/`):
@@ -75,8 +69,6 @@ All changes are in the offload module (`src/compressed_tensors/offload/`):
 | Safetensors compat | `cache/disk.py` | Scoped CPU fallback in `DiskCache.onload()` for unrecognized device strings |
 | Tests | ~14 files | `cuda_device` → `accel_device` fixture, `requires_gpu` update, mock retargeting |
 
----
-
 ## Support Policy
 
 | Backend | Tier | Status |
@@ -88,8 +80,6 @@ All changes are in the offload module (`src/compressed_tensors/offload/`):
 - **Minimum PyTorch version:** `torch>=2.6.0` (no compatibility shim). All
   downstream consumers (vLLM, llm-compressor) already require ≥2.1, and any
   XPU/NPU user is on ≥2.6.
-
----
 
 ## Implementation Steps
 
@@ -111,8 +101,6 @@ All changes are in the offload module (`src/compressed_tensors/offload/`):
 | `safetensors` direct-load | ✓ | ✓ |
 | Distributed init + broadcast | ✓ | ✓ |
 | Full W4A16 quantization pipeline | ✓ | ✓ |
-
----
 
 ## Risks
 
