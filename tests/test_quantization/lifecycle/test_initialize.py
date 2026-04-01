@@ -108,7 +108,9 @@ def test_initialize_module_for_quantization(
 def test_initialize_module_for_quantization_offloaded(
     create_quantization_scheme, weights, input_activations, layer
 ):
-    offload_model(layer, "cuda:0")
+    offload_model(
+        layer, f"{torch.accelerator.current_accelerator().type}:0"
+    )
 
     test_initialize_module_for_quantization(
         create_quantization_scheme,

@@ -19,10 +19,13 @@ from transformers import AutoModelForCausalLM
 
 @requires_gpu
 def test_attention_cache():
+    _accel_type = torch.accelerator.current_accelerator().type
     model = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", device_map="cuda"
+        "nm-testing/llama2.c-stories15M", device_map=_accel_type
     )
-    inputs = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
+    inputs = {
+        key: value.to(_accel_type) for key, value in model.dummy_inputs.items()
+    }
     true_outputs = model(**inputs)
     layers = model.model.layers
 

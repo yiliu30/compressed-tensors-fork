@@ -23,7 +23,7 @@ def test_serialization(type, randomize, model_apply, tmp_path, offload):
     # get model, maybe offload
     model, apply = model_apply
     if offload:
-        offload_model(model, torch.device("cuda"))
+        offload_model(model, torch.device(torch.accelerator.current_accelerator().type))
 
     # apply transforms to model
     config = TransformConfig(
@@ -38,7 +38,8 @@ def test_serialization(type, randomize, model_apply, tmp_path, offload):
     # check that saved values match model values
     # note that shared weights are only serialized once
     safetensors_path = os.path.join(model_path, "model.safetensors")
-    device = "cuda:0" if offload else "cpu"
+    _accel_type = torch.accelerator.current_accelerator().type
+    device = f"{_accel_type}:0" if offload else "cpu"
     with safe_open(safetensors_path, framework="pt", device=device) as file:
         saved_keys = set(file.keys())
         assert {
@@ -64,7 +65,10 @@ def test_serialization(type, randomize, model_apply, tmp_path, offload):
     ],
 )
 def test_load_perplexity(model_stub, exp_perplexity):
-    model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_stub,
+        device_map=torch.accelerator.current_accelerator().type,
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_stub)
 
     prompt = "The capital of France is Paris, the capital of Germany is Berlin"

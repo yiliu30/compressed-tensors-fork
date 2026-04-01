@@ -36,7 +36,9 @@ def shard_validation():
 def validate_compression(dense_matrix, decompressed_tensor):
     """Validate that the decompressed tensor matches the original dense matrix."""
     if decompressed_tensor.dtype == FP8_E4M3_DATA.dtype:
-        decompressed_tensor = decompressed_tensor.to("cuda")
+        decompressed_tensor = decompressed_tensor.to(
+            torch.accelerator.current_accelerator()
+        )
     dense_matrix = dense_matrix.to(decompressed_tensor.device)
     assert dense_matrix.dtype == decompressed_tensor.dtype, "Dtype mismatch"
     assert dense_matrix.shape == decompressed_tensor.shape, "Shape mismatch"

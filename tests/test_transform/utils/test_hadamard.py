@@ -10,6 +10,7 @@ from compressed_tensors.transform.utils.hadamard import (
 )
 from tests.testing_utils import requires_gpu
 
+_ACCEL_TYPE = torch.accelerator.current_accelerator().type
 
 _sizes_to_test = [
     768,  # gpt2 small
@@ -32,9 +33,9 @@ _atol = 1e-1  # bfloat16 is low precision for large matrices
 @pytest.mark.parametrize("size", _sizes_to_test)
 def test_random_hadamard_matrix_compliant(size):
     # (H / sqrt(n))(H.T / sqrt(n)) == I
-    matrix = random_hadamard_matrix(size, device="cuda")
+    matrix = random_hadamard_matrix(size, device=_ACCEL_TYPE)
     product = (matrix @ matrix.T) / matrix.size(0)
-    eye = torch.eye(size, dtype=product.dtype, device="cuda")
+    eye = torch.eye(size, dtype=product.dtype, device=_ACCEL_TYPE)
     assert torch.allclose(product, eye, atol=_atol)
 
 
@@ -68,11 +69,11 @@ def test_random_hadamard_generator():
 def test_deterministic_hadamard_compliant(size):
     if not is_pow2(size):
         with pytest.raises(ValueError):
-            matrix = deterministic_hadamard_matrix(size, device="cuda")
+            matrix = deterministic_hadamard_matrix(size, device=_ACCEL_TYPE)
         return
 
     # (H / sqrt(n))(H.T / sqrt(n)) == I
-    matrix = deterministic_hadamard_matrix(size, device="cuda")
+    matrix = deterministic_hadamard_matrix(size, device=_ACCEL_TYPE)
     product = (matrix @ matrix.T) / matrix.size(0)
-    eye = torch.eye(size, dtype=product.dtype, device="cuda")
+    eye = torch.eye(size, dtype=product.dtype, device=_ACCEL_TYPE)
     assert torch.allclose(product, eye, atol=_atol)

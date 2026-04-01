@@ -31,7 +31,7 @@ def test_memory_sharing(type, randomize, requires_grad, offload):
     # load model (maybe with offloading)
     model = TransformableModel(2, 2, 4, 4, 8, 8)
     if offload:
-        offload_model(model, torch.device("cuda"))
+        offload_model(model, torch.device(torch.accelerator.current_accelerator().type))
 
     # add transforms to model
     config = TransformConfig(

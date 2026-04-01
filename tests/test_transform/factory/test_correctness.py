@@ -87,12 +87,12 @@ def test_correctness_model(type, randomize, input_batch_size, model_apply, offlo
     # load model
     model = model_apply[0]
     if offload:
-        offload_model(model, torch.device("cuda"))
+        offload_model(model, torch.device(torch.accelerator.current_accelerator().type))
 
     # get output
     input = torch.rand((input_batch_size, 5, model.fcs[0].in_features))
     if offload:
-        input = input.to(torch.device("cuda"))
+        input = input.to(torch.device(torch.accelerator.current_accelerator().type))
     true_output = model(input)
 
     # apply transforms
@@ -183,31 +183,32 @@ def test_correctness_query_key_locations(type, randomize, head_dim, input_batch_
 
 
 @requires_gpu
-@pytest.mark.parametrize("cuda_default", (True, False))
-def test_random_matrix_device_handling(cuda_default):
+@pytest.mark.parametrize("accel_default", (True, False))
+def test_random_matrix_device_handling(accel_default):
     """
     Test that random-matrix transforms can be created
-    on CUDA.
+    on an accelerator device.
     """
     seed = 0
     size = (4, 8)
+    _accel_type = torch.accelerator.current_accelerator().type
 
     cur_default = torch.get_default_device()
-    if cuda_default:
-        torch.set_default_device("cuda")
-    module = torch.nn.Linear(*size, bias=False).cuda()
+    if accel_default:
+        torch.set_default_device(_accel_type)
+    module = torch.nn.Linear(*size, bias=False).to(_accel_type)
     scheme = TransformScheme(type="random-matrix", randomize=True)
     factory = TransformFactory.from_scheme(scheme, name="", seed=seed)
 
-    # Create transforms - this should work despite CPU generator and CUDA module
+    # Create transforms - this should work despite CPU generator and accelerator module
     input_tfm = factory.create_transform(
         module, TransformArgs(targets="Linear", location="input", inverse=True)
     )
 
-    # Verify transforms work correctly on CUDA
-    input = torch.rand((5, 3, size[0])).cuda()
+    # Verify transforms work correctly on accelerator
+    input = torch.rand((5, 3, size[0])).to(_accel_type)
     input_tfm(input)
 
-    # Verify that transforms were created on CUDA
-    assert input_tfm.weight.device.type == "cuda"
+    # Verify that transforms were created on accelerator
+    assert input_tfm.weight.device.type == _accel_type
     torch.set_default_device(cur_default)

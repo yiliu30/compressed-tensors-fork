@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import torch
 from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
@@ -24,10 +25,14 @@ from transformers import AutoModelForCausalLM
 
 @requires_gpu
 def test_apply_config_detects_deepseekv3_attention_and_hooks():
+    _accel_type = torch.accelerator.current_accelerator().type
     model = AutoModelForCausalLM.from_pretrained(
-        "trl-internal-testing/tiny-DeepseekV3ForCausalLM", device_map="cuda"
+        "trl-internal-testing/tiny-DeepseekV3ForCausalLM",
+        device_map=_accel_type,
     )
-    inputs = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
+    inputs = {
+        key: value.to(_accel_type) for key, value in model.dummy_inputs.items()
+    }
 
     # Build attention quantization scheme targeting attention modules
     qa = QuantizationArgs(
