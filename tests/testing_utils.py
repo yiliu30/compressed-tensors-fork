@@ -40,7 +40,9 @@ def get_random_mat(M, K, dtype) -> "torch.Tensor":
     rand_tensor_dtype = dtype
     if dtype in [torch.int8, FP8_DTYPE]:
         rand_tensor_dtype = torch.float16
-    mat = torch.rand(M, K, dtype=rand_tensor_dtype).cuda()
+    mat = torch.rand(M, K, dtype=rand_tensor_dtype).to(
+        torch.accelerator.current_accelerator()
+    )
     mat = mat.masked_fill_(mat == 0, 1)
     return mat.to(dtype)
 
@@ -63,8 +65,9 @@ def generate_pruned_semi_structured_mat(M, K, dtype) -> "torch.Tensor":
     mat = mat.masked_fill_(mat == 0, 1)
     if dtype == FP8_E4M3_DATA.dtype:
         # some float8_e4m3fn operations are not supported on CPU
-        mat = mat.cuda()
-        mask = mask.cuda()
+        accel = torch.accelerator.current_accelerator()
+        mat = mat.to(accel)
+        mask = mask.to(accel)
     mat = mat * mask
     return mat.to(dtype)
 
@@ -101,12 +104,12 @@ def induce_sparsity(tensor, sparsity_ratio) -> "torch.Tensor":
 
 def is_gpu_available():
     """
-    :return: True if a GPU is available, False otherwise
+    :return: True if an accelerator device is available, False otherwise
     """
     try:
         import torch  # noqa: F401
 
-        return torch.cuda.device_count() > 0
+        return torch.accelerator.device_count() > 0
     except ImportError:
         return False
 
@@ -133,7 +136,7 @@ def requires_gpu(test_case_or_num):
         num_required_gpus = 1
 
     decorator = pytest.mark.skipif(
-        (torch.cuda.device_count() < num_required_gpus),
+        (torch.accelerator.device_count() < num_required_gpus),
         reason=f"Not enough GPUs available, {num_required_gpus} GPUs required",
     )
     if isinstance(test_case_or_num, int):
