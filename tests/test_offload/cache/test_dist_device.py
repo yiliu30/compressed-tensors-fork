@@ -22,8 +22,9 @@ from tests.test_offload.conftest import assert_device_equal, torchrun
 from tests.testing_utils import requires_gpu
 
 
-ONLOAD_DEVICE = torch.device("cuda")
-OFFLOAD_DEVICE = torch.device("cuda")
+_ACCEL_TYPE = torch.accelerator.current_accelerator().type
+ONLOAD_DEVICE = torch.device(_ACCEL_TYPE)
+OFFLOAD_DEVICE = torch.device(_ACCEL_TYPE)
 
 # Note that tests only require at least 1 gpu
 # b/c different ranks can share the same gpu

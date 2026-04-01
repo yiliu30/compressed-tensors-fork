@@ -23,7 +23,7 @@ from tests.test_offload.conftest import assert_tensor_equal
 from tests.testing_utils import requires_gpu
 
 
-ONLOAD_DEVICE = torch.device("cuda")
+ONLOAD_DEVICE = torch.device(torch.accelerator.current_accelerator().type)
 OFFLOAD_DEVICE = "disk"
 
 

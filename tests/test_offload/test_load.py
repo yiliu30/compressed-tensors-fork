@@ -17,18 +17,21 @@ from transformers import AutoModelForCausalLM
 acclerate = pytest.importorskip("accelerate")
 
 
+_ACCEL_TYPE = torch.accelerator.current_accelerator().type
+_ACCEL_DEV = torch.device(_ACCEL_TYPE)
+
 TEST_PARAMETERS = [
     (
         "auto",
         {0: 596049920, "cpu": 1e15},  # force cpu offload for testing
-        torch.device("cuda"),
+        _ACCEL_DEV,
         torch.device("cpu"),
     ),
     (
-        "cuda",
+        _ACCEL_TYPE,
         None,
-        torch.device("cuda"),
-        torch.device("cuda"),
+        _ACCEL_DEV,
+        _ACCEL_DEV,
     ),
     (
         "cpu",
