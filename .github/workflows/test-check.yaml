@@ -81,6 +81,9 @@ jobs:
               uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/xpu"
         - name: "🔬 Running tests"
           run: |-
-            docker exec -e NUMA_NODE=${NUMA_NODE} -e NUMA_CPUSET=${NUMA_CPUSET} -e ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK} $CONTAINER_NAME \
-              bash -c "echo 'ZE_AFFINITY_MASK: ${ZE_AFFINITY_MASK}' && echo 'NUMA_NODE: ${NUMA_NODE}' && echo 'NUMA_CPUSET: ${NUMA_CPUSET}' && \
-              numactl --physcpubind="${NUMA_CPUSET:-84-111}" --membind="${NUMA_NODE:-3}" pytest -c tests/pytest-xpu.ini"
+            docker exec -e NUMA_NODE=${NUMA_NODE} -e NUMA_CPUSET=${NUMA_CPUSET} -e ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK} \
+            $CONTAINER_NAME bash -c "
+              echo 'ZE_AFFINITY_MASK: ${ZE_AFFINITY_MASK}' && \ 
+              echo 'NUMA_NODE: ${NUMA_NODE}' && \
+              echo 'NUMA_CPUSET: ${NUMA_CPUSET}' && \
+              numactl --physcpubind=${NUMA_CPUSET:-84-111} --membind=${NUMA_NODE:-3} pytest -c tests/pytest-xpu.ini"
