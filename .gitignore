@@ -161,3 +161,6 @@ cython_debug/
 #.idea/
 
 examples/**/*.safetensors
+
+# Claude Code personal config
+CLAUDE.local.md
