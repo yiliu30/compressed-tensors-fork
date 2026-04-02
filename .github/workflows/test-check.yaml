@@ -61,16 +61,16 @@ jobs:
         - name: Build docker image
           run: |-
             if [[ ! $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Fx "$IMAGE") ]]; then
-              docker build --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) -t $IMAGE_NAME -f .github/workflows/Dockerfile.xpu .
+              docker build --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) -t $IMAGE_NAME -f .github/docker/Dockerfile.xpu .
             fi
             docker images | grep "vllm-xpu-test"
         - name: Set up docker container
           run: |-
-            CONTAINER_NAME=vllm-xpu-test-container${NODE_LABEL}
+            CONTAINER_NAME=vllm-test-container-${NODE_LABEL}
             if [[ $(docker ps -a --format '{{.Names}}' | grep -Fx "$CONTAINER_NAME") ]]; then
               docker rm -f $CONTAINER_NAME
             fi
-            docker run --disable-content-trust --privileged --name $CONTAINER_NAME -v ${{ github.workspace }}:/workspace -w /workspace $IMAGE_NAME tail -f /dev/null
+            docker run -tid --disable-content-trust --privileged --name $CONTAINER_NAME -v ${{ github.workspace }}:/workspace -w /workspace $IMAGE_NAME
             echo "Show the container list after docker run ... "
             docker ps -a | grep "vllm-xpu-test-container"
             echo "CONTAINER_NAME=$CONTAINER_NAME" > $GITHUB_ENV
