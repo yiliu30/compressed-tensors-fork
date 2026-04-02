@@ -63,7 +63,7 @@ jobs:
             fetch-tags: true
         - name: Build docker image
           run: |-
-            if [[ ! $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Fx "$IMAGE") ]]; then
+            if [[ ! $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Fx "$IMAGE_NAME") ]]; then
               docker build --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) -t $IMAGE_NAME -f .github/docker/Dockerfile.xpu .
             fi
             docker images | grep "vllm-xpu-test"
