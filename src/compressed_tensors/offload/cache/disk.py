@@ -175,8 +175,16 @@ def _get_safe_open_device(device: "DeviceLikeType") -> str | int:
     device = torch.device(device)
     if is_accelerator_type(device.type):
         if device.index is None:
-            return torch.accelerator.current_device_index()
+            index = torch.accelerator.current_device_index()
         else:
-            return device.index
+            index = device.index
+
+        # safetensors accepts bare integers only for CUDA devices;
+        # for other accelerators return the full "type:index" string
+        # so safetensors either handles it or raises (triggering
+        # the CPU fallback in onload()).
+        if device.type == "cuda":
+            return index
+        return f"{device.type}:{index}"
     else:
         return device.type
