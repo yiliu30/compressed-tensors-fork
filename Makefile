@@ -1,4 +1,4 @@
-.PHONY: build docs test test-xpu
+.PHONY: build docs test
 
 BUILD_TYPE ?= dev # set nightly to build nightly release
 PYCHECKDIRS := src tests
@@ -24,11 +24,6 @@ style:
 test:
 	@echo "Running python tests";
 	pytest -ra tests;
-
-# run XPU tests (on real XPU hardware, or emulated on CUDA with --emulate-xpu)
-test-xpu:
-	@echo "Running XPU tests";
-	cd tests && pytest -c pytest-xpu.ini $(PYTEST_ARGS);
 
 # creates wheel file
 build:
