@@ -211,6 +211,7 @@ def test_offload_and_dispatch_model(model_id):
 
 
 @pytest.mark.unit
+@pytest.mark.skip_xpu  # mocks torch.cuda but src uses torch.accelerator
 def test_get_device_memory_cpu_fallback():
     with patch("compressed_tensors.offload.dispatch.torch.cuda") as mock_cuda:
         mock_cuda.is_available.return_value = False
@@ -232,6 +233,7 @@ def test_dispatch_cpu_only():
 
 
 @pytest.mark.unit
+@pytest.mark.skip_xpu  # mocks torch.cuda but src uses torch.accelerator
 def test_dispatch_cpu_only_via_fallback():
     model = Model()
 
