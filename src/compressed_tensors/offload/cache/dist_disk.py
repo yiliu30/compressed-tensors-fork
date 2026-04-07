@@ -48,6 +48,21 @@ class DistributedDiskCache(DiskCache):
         dist.barrier()
         return offloaded
 
+    def update_offload(self, offloaded: torch.Tensor, data: torch.Tensor | None):
+        """
+        Synchronously update tensor data on disk.
+
+        Only rank 0 writes the safetensors file; all other ranks wait so that later
+        onloads do not race a partially written file.
+
+        :param offloaded: meta tensor representing parameter to update
+        :param data: new data
+        """
+        if dist.get_rank() == 0:
+            super().update_offload(offloaded, data)
+
+        dist.barrier()
+
     def __delitem__(self, key: str):
         """
         Remove the offload associated with `key`. If a new file was created to store
