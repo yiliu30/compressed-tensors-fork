@@ -1,5 +1,4 @@
-.PHONY: build docs test test-xpu
-
+.PHONY: build docs test
 BUILD_TYPE ?= dev # set nightly to build nightly release
 PYCHECKDIRS := src tests
 PYCHECKGLOBS := 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' 'examples/**/*.py' setup.py
