@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import os
+import tempfile
 from typing import TYPE_CHECKING, Literal, Optional
 
 import torch
@@ -144,14 +145,27 @@ class DiskCache(OffloadCache):
         file_path = weight_info["safetensors_file"]
         weight_name = weight_info["weight_name"]
         dtype = getattr(torch, weight_info["dtype"])
+        file_dir = os.path.dirname(file_path)
 
-        # create new file if old file was a symlink to a checkpoint file
-        if os.path.islink(file_path):
-            assert os.path.basename(file_path).startswith(self._new_file_prefix)
-            os.unlink(file_path)
+        # Write to a temporary file first, then atomically replace the target path.
+        # This avoids exposing partially-written safetensors files to other ranks
+        # and also cleanly replaces checkpoint symlinks with real files.
+        fd, tmp_file_path = tempfile.mkstemp(
+            dir=file_dir,
+            prefix=f"{os.path.basename(file_path)}.",
+            suffix=".tmp",
+        )
+        os.close(fd)
 
-        # save with data using original weight_name
-        save_file({weight_name: data.reshape_as(offloaded).to(dtype=dtype)}, file_path)
+        try:
+            save_file(
+                {weight_name: data.reshape_as(offloaded).to(dtype=dtype)},
+                tmp_file_path,
+            )
+            os.replace(tmp_file_path, file_path)
+        finally:
+            if os.path.exists(tmp_file_path):
+                os.remove(tmp_file_path)
 
     @classmethod
     def create_checkpoint_symlink(
