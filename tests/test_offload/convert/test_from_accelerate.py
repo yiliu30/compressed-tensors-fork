@@ -23,7 +23,6 @@ from tests.testing_utils import requires_gpu
 from transformers import AutoModelForCausalLM
 
 
-
 acclerate = pytest.importorskip("accelerate")
 
 
