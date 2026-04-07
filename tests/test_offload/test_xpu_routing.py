@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 """
-Option 1: Mock routing tests for XPU device type.
+XPU emulation test (part 1): Mock routing tests for XPU device type.
 
 Verifies that routing functions handle ``"xpu"`` correctly by mocking
 ``torch.accelerator`` — no real tensor operations, no GPU required.

@@ -11,7 +11,7 @@ from compressed_tensors.quantization.utils import calculate_qparams
 
 
 # ---------------------------------------------------------------------------
-# --emulate-xpu plugin (Option 2: TorchFunctionMode device emulation)
+# XPU emulation tests (part 2): TorchFunctionMode device emulation
 # ---------------------------------------------------------------------------
 
 
