@@ -77,13 +77,24 @@ class TestXpuRouting:
 
         # bare "xpu" → current device index (0)
         result = _get_safe_open_device(torch.device("xpu"))
-        assert result == 0
+        assert result == "xpu:0"
 
     def test_get_safe_open_device_xpu_with_index(self, mock_xpu_accelerator):
         from compressed_tensors.offload.cache.disk import _get_safe_open_device
 
         result = _get_safe_open_device(torch.device("xpu", 3))
-        assert result == 3
+        assert result == "xpu:3"
+
+    def test_get_safe_open_device_cuda_returns_integer(self, monkeypatch):
+        from compressed_tensors.offload.cache.disk import _get_safe_open_device
+
+        fake = SimpleNamespace(type="cuda")
+        monkeypatch.setattr(torch.accelerator, "current_accelerator", lambda: fake)
+        monkeypatch.setattr(torch.accelerator, "is_available", lambda: True)
+        monkeypatch.setattr(torch.accelerator, "current_device_index", lambda: 2)
+
+        assert _get_safe_open_device(torch.device("cuda")) == 2
+        assert _get_safe_open_device(torch.device("cuda", 5)) == 5
 
     def test_get_safe_open_device_cpu(self, mock_xpu_accelerator):
         from compressed_tensors.offload.cache.disk import _get_safe_open_device
