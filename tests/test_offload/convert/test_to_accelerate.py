@@ -10,9 +10,6 @@ from compressed_tensors.offload.convert.to_accelerate import to_accelerate_modul
 from tests.test_offload.conftest import torchrun
 from tests.testing_utils import requires_gpu
 
-# accelerate integration tests use hardcoded "cuda" device strings that
-# cannot be remapped by the XPU emulation layer
-pytestmark = pytest.mark.skip_xpu
 
 
 acclerate = pytest.importorskip("accelerate")
