@@ -10,7 +10,6 @@ from types import FrameType
 
 import psutil
 import torch
-import torch.distributed as dist
 from compressed_tensors.offload.convert import from_accelerate
 from compressed_tensors.offload.dist_utils import is_distributed, is_rank0
 from loguru import logger
