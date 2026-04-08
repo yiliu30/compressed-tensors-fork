@@ -67,19 +67,10 @@ class DiskCache(OffloadCache):
         weight_info = self.index[offloaded]
         device = _get_safe_open_device(self.onload_device)
 
-        try:
-            with safe_open(
-                weight_info["safetensors_file"], framework="pt", device=device
-            ) as file:
-                onloaded = file.get_tensor(weight_info["weight_name"])
-        except Exception:
-            # Fallback: safetensors may not recognise all accelerator device
-            # strings (e.g. "xpu").  Load to CPU, then move.
-            with safe_open(
-                weight_info["safetensors_file"], framework="pt", device="cpu"
-            ) as file:
-                onloaded = file.get_tensor(weight_info["weight_name"])
-            onloaded = onloaded.to(self.onload_device)
+        with safe_open(
+            weight_info["safetensors_file"], framework="pt", device=device
+        ) as file:
+            onloaded = file.get_tensor(weight_info["weight_name"])
 
         onloaded = to_tensor(onloaded, offloaded)
         onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
@@ -191,14 +182,14 @@ class DiskCache(OffloadCache):
         }
 
 
-def _get_safe_open_device(device: "DeviceLikeType") -> str | int:
+def _get_safe_open_device(device: "DeviceLikeType") -> str:
     """
     `safetensors.safe_open` does not accept `torch.device` as argument, so
     we must convert from torch.device to a string, while considering accelerator
     device index resolution.
 
     :param device: torch device to convert
-    :return: device argument to `safetensors.safe_open`
+    :return: device string for `safetensors.safe_open`
     """
     from compressed_tensors.offload.convert.helpers import is_accelerator_type
 
@@ -208,13 +199,6 @@ def _get_safe_open_device(device: "DeviceLikeType") -> str | int:
             index = torch.accelerator.current_device_index()
         else:
             index = device.index
-
-        # safetensors accepts bare integers only for CUDA devices;
-        # for other accelerators return the full "type:index" string
-        # so safetensors either handles it or raises (triggering
-        # the CPU fallback in onload()).
-        if device.type == "cuda":
-            return index
         return f"{device.type}:{index}"
     else:
         return device.type
