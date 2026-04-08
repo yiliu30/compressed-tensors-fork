@@ -92,7 +92,7 @@ def patch_from_pretrained(obj: cls_to_patch, extra_cpu_mem: int):
 
 def _get_device_memory() -> dict[int, int]:
     if is_distributed():
-        index = dist.get_rank()
+        index = torch.accelerator.current_device_index()
         return {index: torch.accelerator.get_memory_info(index)[1]}
     else:
         return {
