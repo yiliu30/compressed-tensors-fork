@@ -8,7 +8,7 @@ from typing import ClassVar, Literal
 
 import torch
 import torch.distributed as dist
-from compressed_tensors import is_accelerator_type
+from compressed_tensors.utils import is_accelerator_type
 
 
 class OffloadCache(MutableMapping, ABC):

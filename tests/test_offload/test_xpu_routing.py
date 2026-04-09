@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from compressed_tensors import is_accelerator_type
 from compressed_tensors.offload.cache.base import OffloadCache
 from compressed_tensors.offload.cache.device import DeviceCache
 from compressed_tensors.offload.convert.helpers import norm_device
+from compressed_tensors.utils import is_accelerator_type
 
 
 @pytest.fixture
