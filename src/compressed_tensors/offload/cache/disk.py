@@ -2,7 +2,6 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import os
-import tempfile
 from typing import TYPE_CHECKING, Literal, Optional
 
 import torch
