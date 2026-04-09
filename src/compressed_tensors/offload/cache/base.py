@@ -62,7 +62,7 @@ class OffloadCache(MutableMapping, ABC):
         from compressed_tensors.offload.cache.dist_cpu import DistributedCPUCache
         from compressed_tensors.offload.cache.dist_device import DistributedDeviceCache
         from compressed_tensors.offload.cache.dist_disk import DistributedDiskCache
-        from compressed_tensors.offload.convert.helpers import is_accelerator_type
+        from compressed_tensors.utils.helpers import is_accelerator_type
 
         device_type = torch.device(device).type if device != "disk" else "disk"
         distributed = dist.is_available() and dist.is_initialized()

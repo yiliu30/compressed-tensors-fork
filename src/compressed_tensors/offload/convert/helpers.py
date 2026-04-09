@@ -7,33 +7,17 @@ from typing import Iterable, Literal
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.utils.helpers import is_accelerator_type
 
 
 __all__ = [
     "get_tensors",
-    "is_accelerator_type",
     "norm_device",
     "DEFAULT_OFFLOAD_DEVICE",
 ]
 
 
 DEFAULT_OFFLOAD_DEVICE = torch.device("cpu")
-
-
-def is_accelerator_type(device_type: str) -> bool:
-    """Return ``True`` if *device_type* matches the current accelerator.
-
-    Works for any backend exposed via :mod:`torch.accelerator` — CUDA, XPU,
-    NPU, etc.  Returns ``False`` when no accelerator is present.
-    """
-    if not torch.accelerator.is_available():
-        return False
-    return device_type == torch.accelerator.current_accelerator().type
-
-
-def _accel_type() -> str:
-    """Shorthand for the current accelerator's device-type string."""
-    return torch.accelerator.current_accelerator().type
 
 
 def norm_device(

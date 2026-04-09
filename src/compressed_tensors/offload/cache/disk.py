@@ -8,6 +8,7 @@ import torch
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.utils import send_tensors, to_tensor
+from compressed_tensors.utils.helpers import is_accelerator_type
 from safetensors import safe_open
 from safetensors.torch import save_file
 
@@ -179,8 +180,6 @@ def _get_safe_open_device(device: "DeviceLikeType") -> str:
     :param device: torch device to convert
     :return: device string for `safetensors.safe_open`
     """
-    from compressed_tensors.offload.convert.helpers import is_accelerator_type
-
     device = torch.device(device)
     if is_accelerator_type(device.type):
         if device.index is None:
