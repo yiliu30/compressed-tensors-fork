@@ -70,14 +70,21 @@ def pytest_configure(config):
     torch.accelerator.is_available = lambda: real_is_available
 
     # Layer 3: Patch is_accelerator_type to accept both types
-    import compressed_tensors.offload.convert.helpers as _helpers
+    import compressed_tensors.utils as _utils
 
-    config._emulate_orig_is_accelerator_type = _helpers.is_accelerator_type
+    config._emulate_orig_is_accelerator_type = _utils.is_accelerator_type
 
     def patched_is_accelerator_type(device_type: str) -> bool:
         return device_type in (fake_type, real_type)
 
-    _helpers.is_accelerator_type = patched_is_accelerator_type
+    _utils.is_accelerator_type = patched_is_accelerator_type
+
+    # Also patch base.py's binding since it imported is_accelerator_type directly
+    # and captured the original function before pytest_configure ran
+    import compressed_tensors.offload.cache.base as _base
+
+    config._emulate_orig_base_is_accelerator_type = _base.is_accelerator_type
+    _base.is_accelerator_type = patched_is_accelerator_type
 
 
 def pytest_unconfigure(config):
@@ -94,9 +101,15 @@ def pytest_unconfigure(config):
 
     orig_is_accel = getattr(config, "_emulate_orig_is_accelerator_type", None)
     if orig_is_accel is not None:
-        import compressed_tensors.offload.convert.helpers as _helpers
+        import compressed_tensors.utils as _utils
 
-        _helpers.is_accelerator_type = orig_is_accel
+        _utils.is_accelerator_type = orig_is_accel
+
+    orig_base_is_accel = getattr(config, "_emulate_orig_base_is_accelerator_type", None)
+    if orig_base_is_accel is not None:
+        import compressed_tensors.offload.cache.base as _base
+
+        _base.is_accelerator_type = orig_base_is_accel
 
 
 # ---------------------------------------------------------------------------
