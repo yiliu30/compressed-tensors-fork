@@ -56,13 +56,13 @@ class OffloadCache(MutableMapping, ABC):
         :param device: offload device used to find subclass
         :return: subclass of `OffloadCache`
         """
+        from compressed_tensors import is_accelerator_type
         from compressed_tensors.offload.cache.cpu import CPUCache
         from compressed_tensors.offload.cache.device import DeviceCache
         from compressed_tensors.offload.cache.disk import DiskCache
         from compressed_tensors.offload.cache.dist_cpu import DistributedCPUCache
         from compressed_tensors.offload.cache.dist_device import DistributedDeviceCache
         from compressed_tensors.offload.cache.dist_disk import DistributedDiskCache
-        from compressed_tensors.utils.helpers import is_accelerator_type
 
         device_type = torch.device(device).type if device != "disk" else "disk"
         distributed = dist.is_available() and dist.is_initialized()

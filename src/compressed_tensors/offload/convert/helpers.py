@@ -6,8 +6,8 @@ from typing import Iterable, Literal
 
 import torch
 import torch.distributed as dist
+from compressed_tensors import is_accelerator_type
 from compressed_tensors.distributed import is_distributed
-from compressed_tensors.utils.helpers import is_accelerator_type
 
 
 __all__ = [
