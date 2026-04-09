@@ -71,10 +71,9 @@ class DiskCache(OffloadCache):
             weight_info["safetensors_file"], framework="pt", device=device
         ) as file:
             onloaded = file.get_tensor(weight_info["weight_name"])
-
-        onloaded = to_tensor(onloaded, offloaded)
-        onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
-        return onloaded
+            onloaded = to_tensor(onloaded, offloaded)
+            onloaded = onloaded.to(getattr(torch, weight_info["dtype"]))
+            return onloaded
 
     def offload(
         self, tensor: torch.Tensor | None, offloaded: Optional[torch.Tensor] = None
