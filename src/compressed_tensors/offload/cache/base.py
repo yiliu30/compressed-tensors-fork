@@ -5,7 +5,7 @@ import contextlib
 from abc import ABC, abstractmethod
 from collections.abc import Hashable, MutableMapping
 from typing import ClassVar, Literal
-
+from compressed_tensors import is_accelerator_type
 import torch
 import torch.distributed as dist
 
@@ -56,7 +56,6 @@ class OffloadCache(MutableMapping, ABC):
         :param device: offload device used to find subclass
         :return: subclass of `OffloadCache`
         """
-        from compressed_tensors import is_accelerator_type
         from compressed_tensors.offload.cache.cpu import CPUCache
         from compressed_tensors.offload.cache.device import DeviceCache
         from compressed_tensors.offload.cache.disk import DiskCache
