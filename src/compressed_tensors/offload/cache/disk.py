@@ -141,6 +141,7 @@ class DiskCache(OffloadCache):
         if os.path.islink(file_path):
             assert os.path.basename(file_path).startswith(self._new_file_prefix)
             os.unlink(file_path)
+
         # save with data using original weight_name
         save_file({weight_name: data.reshape_as(offloaded).to(dtype=dtype)}, file_path)
 
