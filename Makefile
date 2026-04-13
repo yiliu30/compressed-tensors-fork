@@ -24,7 +24,7 @@ test:
 	@echo "Running python tests";
 	pytest -ra tests;
 	@echo "Running emulated XPU tests";
-	cd tests && pytest -c pytest-xpu.ini --emulate-xpu;
+	pytest -ra -c pytest-xpu.ini --emulate-xpu;
 
 # creates wheel file
 build:
