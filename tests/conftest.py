@@ -32,10 +32,6 @@ def pytest_configure(config):
       2. Accelerator mock — torch.accelerator.current_accelerator() reports "xpu"
       3. is_accelerator_type patch — accepts both "xpu" and "cuda"
 
-    Layer 3 is necessary because DeviceRemapMode converts torch.device("xpu") ->
-    torch.device("cuda"), so tensor.device.type is "cuda".  But is_accelerator_type
-    compares against the mocked "xpu" and would return False.  This is the known
-    trade-off: routing logic is bypassed and must be tested separately (Option 1).
     """
     if not config.getoption("--emulate-xpu"):
         return
