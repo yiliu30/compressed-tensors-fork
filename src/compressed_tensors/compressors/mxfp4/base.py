@@ -13,7 +13,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils import TensorStateDict
 
-
 __all__ = ["MXFP4PackedCompressor"]
 
 
@@ -31,7 +30,9 @@ class MXFP4PackedCompressor(NVFP4PackedCompressor):
         cls, scale: torch.Tensor, weights: QuantizationArgs
     ) -> torch.Tensor:
         scale_dtype = weights.scale_dtype or torch.uint8
-        return compress_mx_scale(scale, scale_dtype)
+        return compress_mx_scale(
+            scale, scale_dtype, weights.scale_calculation_mode
+        )
 
     @classmethod
     def decompress(

@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationStrategy,
+    ScaleCalculationMode,
 )
 from compressed_tensors.quantization.utils.helpers import calculate_qparams
 
@@ -187,3 +188,20 @@ def test_compress_scale_without_scale_dtype():
 
     # Verify the output dtype is uint8
     assert compressed_scale.dtype == torch.uint8
+
+
+def test_compress_scale_with_rceil_mode():
+    scale = torch.tensor([1.0, 100.0, 448.0, 449.0], dtype=torch.float32)
+    quant_args = QuantizationArgs(
+        num_bits=8,
+        type="float",
+        symmetric=True,
+        group_size=32,
+        scale_dtype=torch.uint8,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    compressed_scale = MXFP8QuantizationCompressor._compress_scale(scale, quant_args)
+
+    expected = torch.tensor([127, 134, 136, 136], dtype=torch.uint8)
+    assert torch.equal(compressed_scale, expected)

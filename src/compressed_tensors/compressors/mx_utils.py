@@ -10,12 +10,16 @@ a biased power-of-2 exponent with bias 127: ``scale_float = 2 ** (exp - 127)``.
 """
 
 import torch
-
+from compressed_tensors.quantization.quant_args import ScaleCalculationMode
 
 __all__ = ["compress_mx_scale", "decompress_mx_scale"]
 
 
-def compress_mx_scale(scale: torch.Tensor, scale_dtype: torch.dtype) -> torch.Tensor:
+def compress_mx_scale(
+    scale: torch.Tensor,
+    scale_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+) -> torch.Tensor:
     """
     Convert a float scale tensor to E8M0 exponent format for MX storage.
 
@@ -24,9 +28,14 @@ def compress_mx_scale(scale: torch.Tensor, scale_dtype: torch.dtype) -> torch.Te
 
     :param scale: float scale tensor (e.g. from observer output)
     :param scale_dtype: target dtype for the compressed scale (typically uint8)
+    :param scale_calculation_mode: exponent rounding mode for the MX scale
     :return: biased exponent tensor in the requested dtype
     """
-    scale_exp = 127 + torch.floor(torch.log2(scale)).to(torch.int32)
+    scale_log2 = torch.log2(scale)
+    if scale_calculation_mode == ScaleCalculationMode.RCEIL:
+        scale_exp = 127 + torch.ceil(scale_log2).to(torch.int32)
+    else:
+        scale_exp = 127 + torch.floor(scale_log2).to(torch.int32)
     return scale_exp.to(scale_dtype)
 
 

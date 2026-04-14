@@ -216,6 +216,31 @@ MXFP4 = dict(
     ),
 )
 
+MXFP4_RCEIL = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=32,
+        scale_dtype=torch.uint8,
+        zp_dtype=torch.uint8,
+        scale_calculation_mode="rceil",
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.GROUP,
+        dynamic=True,
+        symmetric=True,
+        group_size=32,
+        scale_dtype=torch.uint8,
+        zp_dtype=torch.uint8,
+        scale_calculation_mode="rceil",
+    ),
+)
+
 MXFP8A16 = dict(
     weights=QuantizationArgs(
         num_bits=8,
@@ -425,4 +450,5 @@ PRESET_SCHEMES = {
     "MXFP4": MXFP4,
     "MXFP8A16": MXFP8A16,
     "MXFP8": MXFP8,
+    "MXFP4_RCEIL": MXFP4_RCEIL,
 }

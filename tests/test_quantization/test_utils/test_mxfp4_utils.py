@@ -4,6 +4,7 @@
 import pytest
 import torch
 from compressed_tensors.quantization import round_to_quantized_type_dtype
+from compressed_tensors.quantization.quant_args import ScaleCalculationMode
 from compressed_tensors.quantization.utils import (
     generate_mx_scales,
     maybe_convert_from_mx_exp,
@@ -86,3 +87,19 @@ def test_mxfp4_scales_e2e(dtype):
     scales_exp = torch.log2(converted_ct)
     block_max_exp = torch.floor(torch.log2(round_to_power_2(block_max))) - 2
     assert torch.equal(scales_exp, block_max_exp)
+
+
+def test_mxfp4_rceil_scale_generation():
+    block_max = torch.tensor([0.1, 0.4, 0.9, 6.0, 7.0], dtype=torch.float32)
+
+    floor_scales = generate_mx_scales(
+        block_max, num_bits=4, scale_calculation_mode=ScaleCalculationMode.FLOOR
+    )
+    rceil_scales = generate_mx_scales(
+        block_max, num_bits=4, scale_calculation_mode=ScaleCalculationMode.RCEIL
+    )
+
+    expected_rceil = torch.tensor([122.0, 124.0, 125.0, 127.0, 128.0])
+
+    assert torch.equal(rceil_scales, expected_rceil)
+    assert torch.any(rceil_scales != floor_scales)

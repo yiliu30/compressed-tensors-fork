@@ -11,8 +11,8 @@ from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationType,
+    ScaleCalculationMode,
 )
-
 
 __all__ = [
     "maybe_convert_from_mx_exp",
@@ -30,6 +30,11 @@ __all__ = [
 _MX_ELEM_OFFSET = {
     4: int(math.floor(math.log2(FP4_E2M1_DATA.max))),  # 2
     8: int(math.floor(math.log2(FP8_E4M3_DATA.max))),  # 8
+}
+
+_MX_ELEM_MAX = {
+    4: FP4_E2M1_DATA.max,
+    8: FP8_E4M3_DATA.max,
 }
 
 
@@ -107,7 +112,11 @@ def round_to_power_2(x: torch.Tensor) -> torch.Tensor:
     return block_max_uint.view(scale_dtype)
 
 
-def generate_mx_scales(x: torch.Tensor, num_bits: int = 4) -> torch.Tensor:
+def generate_mx_scales(
+    x: torch.Tensor,
+    num_bits: int = 4,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+) -> torch.Tensor:
     """
     Generate MX scales (for MXFP4 and MXFP8). The scales require the
     following steps:
@@ -122,7 +131,11 @@ def generate_mx_scales(x: torch.Tensor, num_bits: int = 4) -> torch.Tensor:
     :param num_bits: quantized element width (4 for MXFP4, 8 for MXFP8)
     :returns scales as E8M0 exponents (uint8 after rounding)
     """
+    if scale_calculation_mode == ScaleCalculationMode.RCEIL:
+        max_pos = _MX_ELEM_MAX[num_bits]
+        descale = x / max_pos
+        return 127 + torch.ceil(torch.log2(descale))
+
     offset = _MX_ELEM_OFFSET[num_bits]
-    # Round to closest power of 2
     scale_power_2 = round_to_power_2(x)
     return 127 + torch.floor(torch.log2(scale_power_2)) - offset
