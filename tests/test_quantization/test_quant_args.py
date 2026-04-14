@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
+    ScaleCalculationMode,
 )
 from pydantic import ValidationError
 
@@ -20,6 +21,7 @@ def test_defaults():
     assert default.strategy == QuantizationStrategy.TENSOR
     assert default.group_size is None
     assert default.block_structure is None
+    assert default.scale_calculation_mode == ScaleCalculationMode.FLOOR
 
 
 def test_group():
@@ -143,6 +145,8 @@ def test_invalid():
     with pytest.raises(ValidationError):
         QuantizationArgs(strategy="invalid")
     with pytest.raises(ValidationError):
+        QuantizationArgs(scale_calculation_mode="invalid")
+    with pytest.raises(ValidationError):
         QuantizationArgs(strategy=QuantizationStrategy.GROUP)
 
 
@@ -154,6 +158,7 @@ def test_serialize_args():
         symmetric=True,
         group_size=128,
         actorder=ActivationOrdering.GROUP,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
     )
 
     # Serialize to dict
@@ -164,6 +169,7 @@ def test_serialize_args():
     assert args_dict["group_size"] == 128
     assert args_dict["strategy"] == "group"
     assert args_dict["actorder"] == "group"
+    assert args_dict["scale_calculation_mode"] == "rceil"
 
     # Deserialize from dict
     reloaded = QuantizationArgs.model_validate(args_dict)

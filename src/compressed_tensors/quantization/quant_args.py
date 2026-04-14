@@ -17,7 +17,6 @@ from pydantic import (
     model_validator,
 )
 
-
 __all__ = [
     "FP8_E4M3_DATA",
     "FP4_E2M1_DATA",
@@ -26,6 +25,7 @@ __all__ = [
     "FloatArgs",
     "QuantizationType",
     "QuantizationStrategy",
+    "ScaleCalculationMode",
     "QuantizationArgs",
     "round_to_quantized_type_args",
     "round_to_quantized_type_dtype",
@@ -123,6 +123,19 @@ class DynamicType(str, Enum):
     LOCAL = "local"
 
 
+class ScaleCalculationMode(str, Enum):
+    """
+    Enum storing MX scale calculation modes.
+
+    FLOOR matches the current OCP-style MX scale derivation used by
+    compressed-tensors. RCEIL matches the ratio-based derivation described in
+    NVIDIA's block quantization documentation and torchao's MX reference.
+    """
+
+    FLOOR = "floor"
+    RCEIL = "rceil"
+
+
 class ActivationOrdering(Aliasable, str, Enum):
     """
     Enum storing strategies for activation ordering during GPTQ calibration
@@ -186,6 +199,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     block_structure: list[int] | None = None
     dynamic: DynamicType | bool = False
     actorder: ActivationOrdering | bool | None = None
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     scale_dtype: TorchDtype | None = None
     zp_dtype: TorchDtype | None = None
     observer: str | None = Field(
@@ -274,6 +288,12 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     def validate_dynamic(cls, value) -> DynamicType | bool:
         if isinstance(value, str):
             return DynamicType(value.lower())
+        return value
+
+    @field_validator("scale_calculation_mode", mode="before")
+    def validate_scale_calculation_mode(cls, value) -> ScaleCalculationMode:
+        if isinstance(value, str):
+            return ScaleCalculationMode(value.lower())
         return value
 
     @model_validator(mode="after")

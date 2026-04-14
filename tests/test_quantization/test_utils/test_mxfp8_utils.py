@@ -8,6 +8,7 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
+    ScaleCalculationMode,
 )
 from compressed_tensors.quantization.utils import (
     generate_mx_scales,
@@ -94,3 +95,15 @@ def test_mxfp8_scales_e2e(dtype):
     scales_exp = torch.log2(converted_ct)
     block_max_exp = torch.floor(torch.log2(round_to_power_2(block_max))) - 8
     assert torch.equal(scales_exp, block_max_exp)
+
+
+def test_mxfp8_rceil_scale_generation():
+    block_max = torch.tensor([1.0, 100.0, 448.0, 449.0], dtype=torch.float32)
+
+    rceil_scales = generate_mx_scales(
+        block_max, num_bits=8, scale_calculation_mode=ScaleCalculationMode.RCEIL
+    )
+
+    expected_rceil = torch.tensor([119.0, 125.0, 127.0, 128.0])
+
+    assert torch.equal(rceil_scales, expected_rceil)

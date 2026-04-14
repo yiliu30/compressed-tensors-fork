@@ -23,7 +23,6 @@ from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
 
-
 __all__ = [
     "is_module_quantized",
     "is_model_quantized",
@@ -80,7 +79,9 @@ def calculate_qparams(
         max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
         if should_generate_mx_scales(args=quantization_args):
             scales = generate_mx_scales(
-                x=max_val_pos, num_bits=quantization_args.num_bits
+                x=max_val_pos,
+                num_bits=quantization_args.num_bits,
+                scale_calculation_mode=quantization_args.scale_calculation_mode,
             )
         else:
             scales = max_val_pos / (float(bit_range) / 2)

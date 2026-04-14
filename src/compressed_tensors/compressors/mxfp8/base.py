@@ -18,7 +18,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils import TensorStateDict
 
-
 __all__ = ["MXFP8QuantizationCompressor"]
 
 
@@ -38,7 +37,9 @@ class MXFP8QuantizationCompressor(NaiveQuantizationCompressor):
         cls, scale: torch.Tensor, weights: QuantizationArgs
     ) -> torch.Tensor:
         scale_dtype = weights.scale_dtype or torch.uint8
-        return compress_mx_scale(scale, scale_dtype)
+        return compress_mx_scale(
+            scale, scale_dtype, weights.scale_calculation_mode
+        )
 
     @classmethod
     def _decompress_scale(cls, scale: torch.Tensor) -> torch.Tensor:
