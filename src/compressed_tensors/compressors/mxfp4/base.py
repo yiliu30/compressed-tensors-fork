@@ -3,14 +3,19 @@
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.compressors.mx_utils import compress_mx_scale
+from compressed_tensors.compressors.mx_utils import (
+    compress_mx_scale,
+    decompress_mx_scale,
+)
 from compressed_tensors.compressors.nvfp4.base import NVFP4PackedCompressor
+from compressed_tensors.compressors.nvfp4.helpers import unpack_fp4_from_uint8
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationType,
 )
+from compressed_tensors.quantization.lifecycle.forward import dequantize
 from compressed_tensors.utils import TensorStateDict
 
 
@@ -23,7 +28,6 @@ class MXFP4PackedCompressor(NVFP4PackedCompressor):
     Compressor for MXFP4 quantized models.
 
     Overrides scale compression to use log2 encoding (bias-127 exponent).
-    Decompression is not implemented for this format.
     """
 
     @classmethod
@@ -40,13 +44,31 @@ class MXFP4PackedCompressor(NVFP4PackedCompressor):
         """
         Decompress a per-module state dict.
 
-        MXFP4 decompression is currently not supported.
-
         :param state_dict: local-name state dict (weight_packed, weight_scale, …)
         :param scheme: quantization scheme for the weight
         :return: decompressed state dict with weight in float dtype
         """
-        raise NotImplementedError("MXFP4 decompression is currently not supported")
+        state_dict = state_dict.copy()
+        packed = state_dict.pop("weight_packed")
+        scale = state_dict.get("weight_scale")
+        global_scale = state_dict.get("weight_global_scale", None)
+
+        m, n = packed.shape
+        unpacked = unpack_fp4_from_uint8(packed, m, n * 2)
+
+        scale_float = decompress_mx_scale(scale)
+
+        state_dict["weight"] = dequantize(
+            x_q=unpacked,
+            scale=scale_float,
+            global_scale=global_scale,
+            dtype=unpacked.dtype,
+        )
+        state_dict["weight_scale"] = torch.nn.Parameter(
+            scale_float, requires_grad=False
+        )
+
+        return state_dict
 
     @classmethod
     def can_compress(cls, module_type: type, scheme: QuantizationScheme) -> bool:
