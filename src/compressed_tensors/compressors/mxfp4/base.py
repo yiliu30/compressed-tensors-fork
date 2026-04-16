@@ -35,9 +35,7 @@ class MXFP4PackedCompressor(NVFP4PackedCompressor):
         return compress_mx_scale(scale, scale_dtype)
 
     @classmethod
-    def _decompress_scale(
-        cls, scale: torch.Tensor, dtype: torch.dtype
-    ) -> torch.Tensor:
+    def _decompress_scale(cls, scale: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
         return decompress_mx_scale(scale).to(dtype)
 
     @classmethod

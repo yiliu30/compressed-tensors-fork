@@ -73,16 +73,12 @@ def test_decompress_decodes_mx_scales_and_restores_weight():
     decompressed = MXFP4PackedCompressor.decompress(
         {
             "weight_packed": packed,
-            "weight_scale": MXFP4PackedCompressor._compress_scale(
-                scale, quant_args
-            ),
+            "weight_scale": MXFP4PackedCompressor._compress_scale(scale, quant_args),
         },
         QuantizationScheme(targets=["Linear"], weights=quant_args),
     )
 
-    expected_weight = torch.tensor(
-        [[0.125, 0.25, 0.75, 1.0]], dtype=torch.bfloat16
-    )
+    expected_weight = torch.tensor([[0.125, 0.25, 0.75, 1.0]], dtype=torch.bfloat16)
 
     assert torch.equal(decompressed["weight_scale"], scale)
     assert torch.equal(decompressed["weight"], expected_weight)
