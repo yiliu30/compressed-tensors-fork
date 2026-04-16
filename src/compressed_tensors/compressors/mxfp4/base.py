@@ -8,15 +8,12 @@ from compressed_tensors.compressors.mx_utils import (
     decompress_mx_scale,
 )
 from compressed_tensors.compressors.nvfp4.base import NVFP4PackedCompressor
-from compressed_tensors.compressors.nvfp4.helpers import unpack_fp4_from_uint8
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationType,
 )
-from compressed_tensors.quantization.lifecycle.forward import dequantize
-from compressed_tensors.utils import TensorStateDict
 
 
 __all__ = ["MXFP4PackedCompressor"]
@@ -38,37 +35,10 @@ class MXFP4PackedCompressor(NVFP4PackedCompressor):
         return compress_mx_scale(scale, scale_dtype)
 
     @classmethod
-    def decompress(
-        cls, state_dict: TensorStateDict, scheme: QuantizationScheme
-    ) -> TensorStateDict:
-        """
-        Decompress a per-module state dict.
-
-        :param state_dict: local-name state dict (weight_packed, weight_scale, …)
-        :param scheme: quantization scheme for the weight
-        :return: decompressed state dict with weight in float dtype
-        """
-        state_dict = state_dict.copy()
-        packed = state_dict.pop("weight_packed")
-        scale = state_dict.get("weight_scale")
-        global_scale = state_dict.get("weight_global_scale", None)
-
-        m, n = packed.shape
-        unpacked = unpack_fp4_from_uint8(packed, m, n * 2)
-
-        scale_float = decompress_mx_scale(scale)
-
-        state_dict["weight"] = dequantize(
-            x_q=unpacked,
-            scale=scale_float,
-            global_scale=global_scale,
-            dtype=unpacked.dtype,
-        )
-        state_dict["weight_scale"] = torch.nn.Parameter(
-            scale_float, requires_grad=False
-        )
-
-        return state_dict
+    def _decompress_scale(
+        cls, scale: torch.Tensor, dtype: torch.dtype
+    ) -> torch.Tensor:
+        return decompress_mx_scale(scale).to(dtype)
 
     @classmethod
     def can_compress(cls, module_type: type, scheme: QuantizationScheme) -> bool:
