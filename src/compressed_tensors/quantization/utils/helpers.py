@@ -8,10 +8,13 @@ import torch
 from compressed_tensors.quantization.quant_args import (
     FP4_E2M1_DATA,
     FP8_E4M3_DATA,
+    UE5M3_DATA,
     FloatArgs,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
+    get_scale_float_args,
+    is_ue5m3_scale_format,
     round_to_quantized_type_dtype,
 )
 from compressed_tensors.quantization.utils.mxfp_utils import (
@@ -19,6 +22,7 @@ from compressed_tensors.quantization.utils.mxfp_utils import (
     maybe_convert_from_mx_exp,
     should_generate_mx_scales,
 )
+from compressed_tensors.quantization.utils.ue5m3_utils import cast_to_ue5m3
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
@@ -101,8 +105,10 @@ def calculate_qparams(
     if global_scale is not None:
         scales = global_scale * scales
 
-    # 3. Conditionally round the scale to the quantized dtype, if scale_dtype is set
-    if quantization_args.scale_dtype is not None:
+    # 3. Conditionally round the scale to the target scale format
+    if is_ue5m3_scale_format(quantization_args):
+        scales = cast_to_ue5m3(scales)
+    elif quantization_args.scale_dtype is not None:
         scales = round_to_quantized_type_dtype(
             scales, dtype=quantization_args.scale_dtype
         )
@@ -112,13 +118,7 @@ def calculate_qparams(
 
     # 5. Update any 0s with small values to
     # prevent div by 0
-    eps = _get_dtype_eps(
-        dtype=(
-            quantization_args.scale_dtype
-            if quantization_args.scale_dtype is not None
-            else scales.dtype
-        )
-    )
+    eps = _get_scale_eps(quantization_args, scales.dtype)
     scales = torch.where(
         scales == 0,
         torch.tensor(eps, dtype=scales.dtype, device=device),
@@ -311,6 +311,7 @@ def generate_gparam(
     scale_data: FloatArgs | None = FP8_E4M3_DATA,
     quant_data: FloatArgs | None = FP4_E2M1_DATA,
     dtype: torch.dtype | None = torch.float32,
+    quantization_args: QuantizationArgs | None = None,
 ):
     """
     Generate a global scale for an entire tensor (input_tensor).
@@ -321,6 +322,9 @@ def generate_gparam(
     attempts to use the entire FP8 dtype range while mapping a per-group max
     to the FP4 max.
     """
+    if quantization_args is not None:
+        scale_data = get_scale_float_args(quantization_args)
+
     min_vals = torch.min(updated_min_val, torch.zeros_like(updated_min_val))
     max_vals = torch.max(updated_max_val, torch.zeros_like(updated_max_val))
     max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
@@ -369,6 +373,12 @@ def _get_dtype_eps(dtype: torch.dtype) -> float:
         return torch.finfo(dtype).eps
     else:
         return 1
+
+
+def _get_scale_eps(args: QuantizationArgs, scale_dtype: torch.dtype) -> float:
+    if is_ue5m3_scale_format(args):
+        return UE5M3_DATA.tiny
+    return _get_dtype_eps(scale_dtype)
 
 
 def calculate_block_padding(

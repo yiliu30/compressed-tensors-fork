@@ -172,6 +172,7 @@ NVFP4A16 = dict(
         dynamic=False,
         group_size=16,
         scale_dtype=FP8_E4M3_DATA.dtype,
+        scale_format="e4m3",
         zp_dtype=FP8_E4M3_DATA.dtype,
     )
 )
@@ -186,6 +187,7 @@ NVFP4 = dict(
         dynamic=False,
         group_size=16,
         scale_dtype=FP8_E4M3_DATA.dtype,
+        scale_format="e4m3",
         zp_dtype=FP8_E4M3_DATA.dtype,
     ),
     input_activations=QuantizationArgs(
@@ -197,6 +199,7 @@ NVFP4 = dict(
         group_size=16,
         observer="static_minmax",
         scale_dtype=FP8_E4M3_DATA.dtype,
+        scale_format="e4m3",
         zp_dtype=FP8_E4M3_DATA.dtype,
     ),
 )

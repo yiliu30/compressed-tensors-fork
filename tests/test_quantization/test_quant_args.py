@@ -2,12 +2,14 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import pytest
+import torch
 from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
 )
+from compressed_tensors.quantization.quant_args import ScaleFormat
 from pydantic import ValidationError
 
 
@@ -178,3 +180,54 @@ def test_serialize_args():
     # Deserialize from dict
     reloaded = QuantizationArgs.model_validate(args_dict)
     assert reloaded == args
+
+
+def test_nvfp4_defaults_to_e4m3_scale_format():
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        strategy="tensor_group",
+        group_size=16,
+    )
+
+    assert args.scale_format == ScaleFormat.E4M3
+    assert args.scale_dtype == torch.float8_e4m3fn
+
+
+def test_ue5m3_scale_format_uses_uint8_storage():
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        strategy="tensor_group",
+        group_size=16,
+        scale_format="ue5m3",
+    )
+
+    assert args.scale_format == ScaleFormat.UE5M3
+    assert args.scale_dtype == torch.uint8
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"num_bits": 8, "type": "float", "strategy": "tensor", "scale_format": "ue5m3"},
+        {"num_bits": 4, "type": "float", "strategy": "group", "group_size": 16, "scale_format": "ue5m3"},
+        {"num_bits": 4, "type": "float", "strategy": "tensor_group", "group_size": 32, "scale_format": "ue5m3"},
+        {"num_bits": 4, "type": "float", "strategy": "tensor_group", "group_size": 16, "scale_format": "ue5m3", "scale_dtype": "torch.float8_e4m3fn"},
+    ],
+)
+def test_invalid_ue5m3_scale_format_combinations(kwargs):
+    with pytest.raises(ValidationError):
+        QuantizationArgs(**kwargs)
+
+
+def test_scale_format_serializes_round_trip():
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        strategy="tensor_group",
+        group_size=16,
+        scale_format="ue5m3",
+    )
+
+    assert QuantizationArgs.model_validate(args.model_dump()) == args

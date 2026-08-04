@@ -16,8 +16,13 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
     QuantizationType,
+    is_ue5m3_scale_format,
 )
 from compressed_tensors.quantization.lifecycle.forward import dequantize, quantize
+from compressed_tensors.quantization.utils.ue5m3_utils import (
+    float_to_ue5m3_bits,
+    ue5m3_bits_to_float,
+)
 from compressed_tensors.utils import TensorStateDict, getattr_chain
 
 
@@ -53,11 +58,17 @@ class NVFP4PackedCompressor(BaseCompressor):
     def _compress_scale(
         cls, scale: torch.Tensor, weights: QuantizationArgs
     ) -> torch.Tensor:
+        if is_ue5m3_scale_format(weights):
+            return float_to_ue5m3_bits(scale)
         scale_dtype = weights.scale_dtype or torch.float8_e4m3fn
         return scale.to(scale_dtype)
 
     @classmethod
-    def _decompress_scale(cls, scale: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    def _decompress_scale(
+        cls, scale: torch.Tensor, dtype: torch.dtype, weights: QuantizationArgs
+    ) -> torch.Tensor:
+        if is_ue5m3_scale_format(weights):
+            return ue5m3_bits_to_float(scale).to(dtype)
         return scale.to(dtype)
 
     @classmethod
@@ -117,7 +128,7 @@ class NVFP4PackedCompressor(BaseCompressor):
         m, n = packed.shape
         unpacked = unpack_fp4_from_uint8(packed, m, n * 2)
 
-        scale_float = cls._decompress_scale(scale, unpacked.dtype)
+        scale_float = cls._decompress_scale(scale, unpacked.dtype, scheme.weights)
 
         state_dict["weight"] = dequantize(
             x_q=unpacked,

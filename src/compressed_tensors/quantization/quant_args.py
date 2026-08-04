@@ -26,6 +26,9 @@ __all__ = [
     "FLOAT16_DATA",
     "FLOAT32_DATA",
     "FLOAT64_DATA",
+    "UE5M3_DATA",
+    "ScaleFormat",
+    "get_scale_float_args",
     "FloatArgs",
     "QuantizationType",
     "QuantizationStrategy",
@@ -33,6 +36,7 @@ __all__ = [
     "round_to_quantized_type_args",
     "round_to_quantized_type_dtype",
     "ActivationOrdering",
+    "is_ue5m3_scale_format",
     "DynamicType",
 ]
 
@@ -85,6 +89,16 @@ class FP8_E4M3_DATA(FloatArgs):
     max = torch.finfo(torch.float8_e4m3fn).max
     min = torch.finfo(torch.float8_e4m3fn).min
     dtype = torch.float8_e4m3fn
+
+
+class UE5M3_DATA(FloatArgs):
+    exponent = 5
+    mantissa = 3
+    bits = 8
+    max = 114688.0
+    min = 0.0
+    tiny = 2.0**-17
+    min_normal = 2.0**-14
 
 
 class BFLOAT16_DATA(FloatArgs):
@@ -143,6 +157,15 @@ class DynamicType(str, Enum):
     """
 
     LOCAL = "local"
+
+
+class ScaleFormat(str, Enum):
+    """
+    Enum storing supported local-scale encodings for microscale formats.
+    """
+
+    E4M3 = "e4m3"
+    UE5M3 = "ue5m3"
 
 
 class ActivationOrdering(Aliasable, str, Enum):
@@ -209,6 +232,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     dynamic: DynamicType | bool = False
     actorder: ActivationOrdering | bool | None = None
     scale_dtype: TorchDtype | None = None
+    scale_format: ScaleFormat | None = None
     zp_dtype: TorchDtype | None = None
     observer: str | None = Field(
         default=None,
@@ -307,6 +331,12 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             return DynamicType(value.lower())
         return value
 
+    @field_validator("scale_format", mode="before")
+    def validate_scale_format(cls, value) -> ScaleFormat | None:
+        if isinstance(value, str):
+            return ScaleFormat(value.lower())
+        return value
+
     @model_validator(mode="after")
     def validate_model_after(model: "QuantizationArgs") -> "QuantizationArgs":
         # extract user-passed values from dictionary
@@ -318,6 +348,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         observer = model.observer
         dynamic = model.dynamic
         zp_dtype = model.zp_dtype
+        scale_dtype = model.scale_dtype
+        scale_format = model.scale_format
 
         # infer strategy
         if strategy is None:
@@ -408,6 +440,41 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             # default to minmax for non-dynamic cases
             observer = "memoryless_minmax"
 
+        if scale_format is None and (
+            model.num_bits == 4
+            and model.type == QuantizationType.FLOAT
+            and strategy == QuantizationStrategy.TENSOR_GROUP
+            and group_size == 16
+        ):
+            scale_format = ScaleFormat.E4M3
+
+        if scale_format is not None:
+            if not (
+                model.num_bits == 4
+                and model.type == QuantizationType.FLOAT
+                and strategy == QuantizationStrategy.TENSOR_GROUP
+                and group_size == 16
+            ):
+                raise ValueError(
+                    "scale_format is only supported for NVFP4-style FP4 "
+                    "tensor_group quantization with group_size=16"
+                )
+
+            if scale_format == ScaleFormat.UE5M3:
+                if scale_dtype is None:
+                    scale_dtype = torch.uint8
+                elif scale_dtype != torch.uint8:
+                    raise ValueError(
+                        "scale_format='ue5m3' requires scale_dtype=torch.uint8"
+                    )
+            elif scale_format == ScaleFormat.E4M3:
+                if scale_dtype is None:
+                    scale_dtype = FP8_E4M3_DATA.dtype
+                elif scale_dtype != FP8_E4M3_DATA.dtype:
+                    raise ValueError(
+                        "scale_format='e4m3' requires scale_dtype=torch.float8_e4m3fn"
+                    )
+
         if zp_dtype is None:
             if model.num_bits == 4 and model.type == QuantizationType.FLOAT:
                 zp_dtype = FP8_E4M3_DATA.dtype
@@ -418,6 +485,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         model.strategy = strategy
         model.observer = observer
         model.zp_dtype = zp_dtype
+        model.scale_dtype = scale_dtype
+        model.scale_format = scale_format
         return model
 
     def pytorch_dtype(self) -> torch.dtype:
@@ -465,6 +534,42 @@ def round_to_quantized_type_dtype(
     if cast_to_original_dtype:
         return rounded.to(original_dtype)
     return rounded
+
+
+def _normalize_scale_format(
+    scale_format: ScaleFormat | str | None,
+) -> ScaleFormat | None:
+    if scale_format is None:
+        return None
+    if isinstance(scale_format, str):
+        return ScaleFormat(scale_format.lower())
+    return scale_format
+
+
+def get_scale_format(args: QuantizationArgs) -> ScaleFormat | None:
+    scale_format = _normalize_scale_format(args.scale_format)
+    if scale_format is not None:
+        return scale_format
+
+    if (
+        args.num_bits == 4
+        and args.type == QuantizationType.FLOAT
+        and args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.group_size == 16
+    ):
+        return ScaleFormat.E4M3
+
+    return None
+
+
+def is_ue5m3_scale_format(args: QuantizationArgs) -> bool:
+    return get_scale_format(args) == ScaleFormat.UE5M3
+
+
+def get_scale_float_args(args: QuantizationArgs) -> type[FloatArgs]:
+    if is_ue5m3_scale_format(args):
+        return UE5M3_DATA
+    return FP8_E4M3_DATA
 
 
 def round_to_quantized_type_args(

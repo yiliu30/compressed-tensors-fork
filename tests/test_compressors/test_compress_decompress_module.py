@@ -168,3 +168,31 @@ def test_linear_only_config_leaves_embedding_untouched():
     assert embed_keys == {"weight"}
     assert not hasattr(model.embed, "quantization_status")
     assert torch.equal(model.embed.weight, embed_weight_before)
+
+
+@requires_gpu
+def test_compress_decompress_module_nvfp4_ue5m3():
+    module = nn.Linear(256, 256, bias=False).to(dtype=torch.bfloat16, device="cuda")
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=4,
+            type="float",
+            strategy="tensor_group",
+            group_size=16,
+            scale_format="ue5m3",
+        ),
+        format=CompressionFormat.nvfp4_pack_quantized,
+    )
+    initialize_module_for_quantization(module, scheme)
+
+    with torch.no_grad():
+        for _, param in list(module.named_parameters()):
+            param.fill_(1)
+
+    compress_module(module)
+    assert module.weight_scale.dtype == torch.uint8
+
+    decompress_module(module)
+    assert module.weight.dtype == torch.float32
+    assert module.weight_scale.dtype == torch.bfloat16
